@@ -93,6 +93,11 @@ def select_strategy(context):
             'sort': SortType.asc,  # 从小到大排序
             'limit': 200  # 只取前200只
         }],
+        [True, '', '首席质量因子', Filter_financial_data, {
+            'filters': [
+                FD_Filter('valuation.pe_ratio',sort=SortType.desc, percent=80),
+            ]
+        }],
         [True, '', '过滤创业板', Filter_gem, {}],
         [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
         [True, '', '权重排序', SortRules, {
@@ -902,7 +907,7 @@ class Pick_stocks2(Group_rules):
 
 
 # 选取财务数据的参数
-# 使用示例 FD_param('valuation.market_cap',None,100) #先取市值小于100亿的股票
+# 使用示例 FD_Factor('valuation.market_cap',None,100) #先取市值小于100亿的股票
 # 注：传入类型为 'valuation.market_cap'字符串而非 valuation.market_cap 是因 valuation.market_cap等存在序列化问题！！
 # 具体传入field 参考  https://www.joinquant.com/data/dict/fundamentals
 class FD_Factor(object):
@@ -910,6 +915,15 @@ class FD_Factor(object):
         self.factor = factor
         self.min = kwargs.get('min', None)
         self.max = kwargs.get('max', None)
+
+
+# 过滤财务数据参数
+# 使用示例 FD_Filter('valuation.pe_ratio',sort=SortType.desc,percent=80) 选取市盈率最大的80%
+class FD_Filter(object):
+    def __init__(self, factor, **kwargs):
+        self.factor = factor
+        self.sort = kwargs.get('sort', SortType.asc)
+        self.percent = kwargs.get('percent', None)
 
 
 # 根据多字段财务数据一次选股，返回一个Query
@@ -978,42 +992,41 @@ class Pick_financial_data(Filter_query):
 # 根据财务数据对Stock_list进行过滤。返回符合条件的stock_list
 class Filter_financial_data(Filter_stock_list):
     def filter(self, context, data, stock_list):
-        q = query(valuation).filter(
-            valuation.code.in_(stock_list)
-        )
-        factor = eval(self._params.get('factor', None))
-        min = self._params.get('min', None)
-        max = self._params.get('max', None)
-
-        if factor is not None:
-            return stock_list
-        if min is None and max is None:
-            return stock_list
-        if min is not None:
-            q = q.filter(
-                factor > min
+        for fd_param in self._params.get('filters', []):
+            q = query(valuation).filter(
+                valuation.code.in_(stock_list)
             )
-        if max is not None:
-            q = q.filter(
-                factor < max
-            )
-        stock_list = list(get_fundamentals(q)['code'])
+            if not isinstance(fd_param, FD_Filter):
+                continue
+            if fd_param.sort is None and fd_param.percent is None:
+                continue
+            factor = eval(fd_param.factor)
+            if fd_param.sort is not None:
+                sort_type = fd_param.sort
+                if sort_type == SortType.asc:
+                    q = q.order_by(factor.asc())
+                else:
+                    q = q.order_by(factor.desc())
+            stock_list = list(get_fundamentals(q)['code'])
+            if fd_param.percent is not None:
+                stock_list = stock_list[0 : int(len(stock_list) * (fd_param.percent)/100)]
+        
         return stock_list
 
     def __str__(self):
-        factor = self._params.get('factor', None)
-        min = self._params.get('min', None)
-        max = self._params.get('max', None)
-        s = self.memo + ':'
-        if min is not None and max is not None:
-            s += ' [ %s < %s < %s ]' % (min, factor, max)
-        elif min is not None:
-            s += ' [ %s < %s ]' % (min, factor)
-        elif max is not None:
-            s += ' [ %s > %s ]' % (factor, max)
-        else:
-            s += '参数错误'
-        return s
+        s = ''
+        for fd_param in self._params.get('filters', []):
+            factor = fd_param.factor
+            sort_type = fd_param.sort
+            s += '\n\t\t\t\t---'
+            sort_type = '从小到大' if sort_type == SortType.asc else '从大到小'
+            s += '[排序:%s %s]' % (factor, sort_type)
+            percent = fd_param.percent
+            if percent is not None:
+                s += '\n\t\t\t\t---'
+                s += '[选择前百分之:%s]' % (percent)
+
+        return '多因子过滤:' + s
 
 
 # '''------------------创业板过滤器-----------------'''
