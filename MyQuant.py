@@ -75,7 +75,7 @@ def before_trading_start(context):
 
 def handle_data(context, data):
     g.GP.gross_profit_trade(context, data)
-    g.GT.grid_trade(context,data)
+    # g.GT.grid_trade(context,data)
     
 #～～～～～～～～～～～～～选股方法～～～～～～～～～～～～～～～～#
 #====================质量因子交易法=======================#
@@ -186,6 +186,8 @@ class Gross_Profitability_lib():
 
         stock_list = stock_list[:hold_number*10]
         stock_list = g.quantlib.remove_limit_up(stock_list, positions_list)
+
+        print stock_list
 
         return stock_list[:hold_number]
 

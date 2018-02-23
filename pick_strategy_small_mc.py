@@ -1,6 +1,5 @@
-def pick_strategy_small_mc():
+def pick_strategy_small_mc(buy_count):
     g.strategy_memo = '小市值多因子选股'
-    buy_count = 3
 
     pick_config = [
         # FD_Factor 第一个参数为因子，min=为最小值 max为最大值，=None则不限，默认都为None。min,max都写则为区间

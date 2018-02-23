@@ -1,17 +1,3 @@
-# 克隆自聚宽文章：https://www.joinquant.com/post/6406
-# 标题：面向对象策略框架升级版: 多因子选股+多因子权重排序示例策略。
-# 作者：晚起的小虫
-
-'''
-多因子小市值策略示例
-    经典二八择时
-    多财务因子选股票池+其它过滤股票池
-    对股票池多因子权重排序选择买股列表
-    固定周期调仓
-    固定买N只股，卖不在买股列表的股票。
-
-by 晚起的小虫
-'''
 import numpy as np
 import pandas as pd
 import talib
@@ -24,23 +10,34 @@ from email.header import Header
 import datetime
 import enum
 
-def pick_strategy_bolling(buy_count):
+def pick_strategy(buy_count):
     g.strategy_memo = '布林线选股'
 
     pick_config = [
         [True, '', '过滤创业板', Filter_gem, {}],
         [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
-        [True, '', '布林线选股', Bolling_pick, {}],
+        [True, '', '布林线选股', Bolling_pick, {
+            'num' : 7,
+            'days': 30
+        }],
         [True, '', '权重排序', SortRules, {
             'config': [
                 [True, '20volumn', '20日成交量排序', Sort_volumn, {
                     'sort': SortType.desc
-                    , 'weight': 50
+                    , 'weight': 10
                     , 'day': 20}],
                 [True, '60volumn', '60日成交量排序', Sort_volumn, {
                     'sort': SortType.desc
-                    , 'weight': 50
+                    , 'weight': 10
                     , 'day': 60}],
+                [True, '120volumn', '120日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 120}],
+                [True, '180volumn', '180日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 180}],
             ]}
         ],
         [True, '', '获取最终选股数', Filter_buy_count, {
@@ -58,13 +55,14 @@ def pick_strategy_bolling(buy_count):
 
 #白名单，股票均在这个list里面选取
 def white_list():
-    return get_index_stocks("000300.XSHG") + get_index_stocks("000001.XSHG")
+    return get_index_stocks("399951.XSHE") + get_index_stocks("000300.XSHG") + get_index_stocks("000001.XSHG")
+    # return get_index_stocks("000001.XSHG")
 
 
 # ==================================策略配置==============================================
 def select_strategy(context):
-    buy_count = 3
-    adjust_days = 3
+    buy_count = 5
+    adjust_days = 7
     # **** 这里定义log输出的类类型,重要，一定要写。假如有需要自定义log，可更改这个变量
     g.log_type = Rule_loger
     # 判断是运行回测还是运行模拟
@@ -98,7 +96,7 @@ def select_strategy(context):
     ]
 
     ''' --------------------------配置 选股规则----------------- '''
-    pick_new = pick_strategy_bolling(buy_count)
+    pick_new = pick_strategy(buy_count)
 
     ''' --------------------------配置 4 调仓规则------------------ '''
     # # 通达信持仓字段不同名校正
@@ -831,10 +829,11 @@ class Pick_stocks(Group_rules):
         for rule in self.rules:
             if isinstance(rule, Filter_query):
                 q = rule.filter(context, data, q)
+                print "执行了: %s" % rule
         stock_list = list(get_fundamentals(q)['code']) if q != None else white_list()
         stock_list = intersect(stock_list, white_list())
 
-        print "we have %s stocks" % len(stock_list)
+        print "选股得到%s只股票" % len(stock_list)
         for rule in self.rules:
             if isinstance(rule, Filter_stock_list):
                 stock_list = rule.filter(context, data, stock_list)
@@ -917,7 +916,7 @@ class Pick_financial_data(Filter_query):
                 continue
             if fd_param.min is None and fd_param.max is None:
                 continue
-            s += '\n\t\t\t\t---'
+            s += '\n\t\t---'
             if fd_param.min is not None and fd_param.max is not None:
                 s += '[ %s < %s < %s ]' % (fd_param.min, fd_param.factor, fd_param.max)
             elif fd_param.min is not None:
@@ -928,12 +927,12 @@ class Pick_financial_data(Filter_query):
         order_by = self._params.get('order_by', None)
         sort_type = self._params.get('sort', SortType.asc)
         if order_by is not None:
-            s += '\n\t\t\t\t---'
+            s += '\n\t\t---'
             sort_type = '从小到大' if sort_type == SortType.asc else '从大到小'
             s += '[排序:%s %s]' % (order_by, sort_type)
         limit = self._params.get('limit', None)
         if limit is not None:
-            s += '\n\t\t\t\t---'
+            s += '\n\t\t---'
             s += '[限制选股数:%s]' % (limit)
         return '多因子选股:' + s
 
@@ -960,6 +959,8 @@ class Filter_financial_data(Filter_stock_list):
             if fd_param.percent is not None:
                 stock_list = stock_list[0 : int(len(stock_list) * (fd_param.percent)/100)]
         
+        print show_rule_execute_result(self, stock_list)
+
         return stock_list
 
     def __str__(self):
@@ -967,12 +968,12 @@ class Filter_financial_data(Filter_stock_list):
         for fd_param in self._params.get('filters', []):
             factor = fd_param.factor
             sort_type = fd_param.sort
-            s += '\n\t\t\t\t---'
+            s += '\n\t\t---'
             sort_type = '从小到大' if sort_type == SortType.asc else '从大到小'
             s += '[排序:%s %s]' % (factor, sort_type)
             percent = fd_param.percent
             if percent is not None:
-                s += '\n\t\t\t\t---'
+                s += '\n\t\t---'
                 s += '[选择前百分之:%s]' % (percent)
 
         return '多因子过滤:' + s
@@ -1044,6 +1045,8 @@ class Bolling_pick(Filter_stock_list):
                     picked_list.append(stock)
                     continue
 
+        print show_rule_execute_result(self, picked_list)
+
         return picked_list
 
     def __str__(self):
@@ -1091,7 +1094,6 @@ class Filter_common(Filter_stock_list):
 
 
 import enum
-
 
 # 因子排序类型
 class SortType(enum.Enum):
@@ -1299,10 +1301,11 @@ class Sort_gross_profit(SortBase):
         df['GP'] = 1.0*(df['total_operating_revenue'] - df['total_operating_cost']) / df['total_assets']
 
         df = df.drop(['total_assets', 'total_operating_revenue', 'total_operating_cost'], axis=1)
-        # df = df.sort(columns='GP', ascending=False)
+        
+        df = df.sort(columns='GP', ascending=self.is_asc)
         #print df.head(10)
         stock_list = list(df['code'])
-
+        
         return stock_list
 
     def __str__(self):
@@ -1761,6 +1764,9 @@ def show_stock(stock):
     '''
     return "%s %s" % (stock[:6], get_security_info(stock).display_name)
 
+
+def show_rule_execute_result(rule, stock_list):
+    return "执行了:%s \n得到股票列表，共%s只，显示前10只:\n%s" % (str(rule), len(stock_list), ''.join(['%s ' % (show_stock(stock)) for stock in stock_list[:10]]))
 
 def join_list(pl, connector=' ', step=5):
     '''
