@@ -24,30 +24,53 @@ from email.header import Header
 import datetime
 import enum
 
-try:
-    import shipane_sdk
-    from trader_sync import *
-except:
-    log.error("加载 shipane_sdk和trader_sync失败")
-    pass
+def pick_strategy_bolling(buy_count):
+    g.strategy_memo = '布林线选股'
 
+    pick_config = [
+        [True, '', '过滤创业板', Filter_gem, {}],
+        [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
+        [True, '', '布林线选股', Bolling_pick, {}],
+        [True, '', '权重排序', SortRules, {
+            'config': [
+                [True, '20volumn', '20日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 50
+                    , 'day': 20}],
+                [True, '60volumn', '60日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 50
+                    , 'day': 60}],
+            ]}
+        ],
+        [True, '', '获取最终选股数', Filter_buy_count, {
+            'buy_count': buy_count  # 最终入选股票数
+        }],
+    ]
+    pick_new = [
+        [True, '_pick_stocks_', '选股', Pick_stocks, {
+            'config': pick_config,
+            'day_only_run_one': True
+        }]
+    ]
 
-# 不同步的白名单，主要用于实盘易同步持仓时，不同步中的新股，需把新股代码添加到这里。
-# 可把while_list另外放到研究的一个py文件里
-def while_list():
-    return ['000001.XSHE']
+    return pick_new
+
+#白名单，股票均在这个list里面选取
+def white_list():
+    return get_index_stocks("000300.XSHG") + get_index_stocks("000001.XSHG")
 
 
 # ==================================策略配置==============================================
 def select_strategy(context):
-    g.strategy_memo = '多因子小市值策略'
+    buy_count = 3
+    adjust_days = 3
     # **** 这里定义log输出的类类型,重要，一定要写。假如有需要自定义log，可更改这个变量
     g.log_type = Rule_loger
     # 判断是运行回测还是运行模拟
     g.is_sim_trade = context.run_params.type == 'sim_trade'
     index2 = '000016.XSHG'  # 大盘指数
     index8 = '399333.XSHE'  # 小盘指数
-    buy_count = 3
 
     ''' ---------------------配置 调仓条件判断规则-----------------------'''
     # 调仓条件判断
@@ -65,7 +88,7 @@ def select_strategy(context):
             'min_rate': 0.005
         }],
         [True, '', '调仓日计数器', Period_condition, {
-            'period': 3,  # 调仓频率,日
+            'period': adjust_days,  # 调仓频率,日
         }],
     ]
     adjust_condition_config = [
@@ -75,63 +98,7 @@ def select_strategy(context):
     ]
 
     ''' --------------------------配置 选股规则----------------- '''
-    pick_config = [
-        # 测试的多因子选股,所选因子只作为示例。
-        # 选用的财务数据参考 https://www.joinquant.com/data/dict/fundamentals
-        # 传入参数的财务因子需为字符串，原因是直接传入如 indicator.eps 会存在序列化问题。
-        # FD_Factor 第一个参数为因子，min=为最小值 max为最大值，=None则不限，默认都为None。min,max都写则为区间
-        [True, '', '多因子选股票池', Pick_financial_data, {
-            'factors': [
-                # FD_Factor('valuation.circulating_market_cap', min=0, max=100)  # 流通市值0~100亿
-                FD_Factor('valuation.pe_ratio', min=0, max=200)  # pe > 0
-                , FD_Factor('indicator.eps', min=0)  # eps > 0
-                # , FD_Factor('indicator.inc_revenue_year_on_year', min=20)
-                # , FD_Factor('indicator.inc_net_profit_year_on_year', min=20)
-                # ,FD_Factor('indicator.roe',min=1,max=50) # roe
-            ],
-            'order_by': 'valuation.circulating_market_cap',  # 按流通市值排序
-            'sort': SortType.asc,  # 从小到大排序
-            'limit': 200  # 只取前200只
-        }],
-        [True, '', '首席质量因子', Filter_financial_data, {
-            'filters': [
-                FD_Filter('valuation.pe_ratio',sort=SortType.desc, percent=80),
-            ]
-        }],
-        [True, '', '过滤创业板', Filter_gem, {}],
-        [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
-        [True, '', '权重排序', SortRules, {
-            'config': [
-                [True, '', '流通市值排序', Sort_financial_data, {
-                    'factor': 'valuation.circulating_market_cap',
-                    'sort': SortType.asc
-                    , 'weight': 100}],
-                [True, '', '按当前价排序', Sort_price, {
-                    'sort': SortType.asc
-                    , 'weight': 20}],
-                [True, '20growth', '20日涨幅排序', Sort_growth_rate, {
-                    'sort': SortType.asc
-                    , 'weight': 10
-                    , 'day': 20}],
-                [True, '60growth', '60日涨幅排序', Sort_growth_rate, {
-                    'sort': SortType.asc
-                    , 'weight': 10
-                    , 'day': 60}],
-                [True, '', '按换手率排序', Sort_turnover_ratio, {
-                    'sort': SortType.asc
-                    , 'weight': 10}],
-            ]}
-         ],
-        [True, '', '获取最终选股数', Filter_buy_count, {
-            'buy_count': buy_count  # 最终入选股票数
-        }],
-    ]
-    pick_new = [
-        [True, '_pick_stocks_', '选股', Pick_stocks2, {
-            'config': pick_config,
-            'day_only_run_one': True
-        }]
-    ]
+    pick_new = pick_strategy_bolling(buy_count)
 
     ''' --------------------------配置 4 调仓规则------------------ '''
     # # 通达信持仓字段不同名校正
@@ -144,20 +111,6 @@ def select_strategy(context):
             'buy_count': buy_count  # 最终买入股票数
         }],
         [True, '_Show_postion_adjust_', '显示买卖的股票', Show_postion_adjust, {}],
-        #实盘易同步持仓，把虚拟盘同步到实盘
-        # [g.is_sim_trade, '_Shipane_manager_', '实盘易操作', Shipane_manager, {
-        #     'host':'111.111.111.111',   # 实盘易IP
-        #     'port':8888,    # 实盘易端口
-        #     'key':'',   # 实盘易Key
-        #     'client':'title:guangfa', # 实盘易client
-        #     'strong_op':False,   # 强力同步模式，开启会强行同步两次。
-        #     'col_names':col_names, # 指定实盘易返回的持仓字段映射
-        #     'cost':context.portfolio.starting_cash, # 实盘的初始资金
-        #     'get_white_list_func':while_list, # 不同步的白名单
-        #     'sync_scale': 1,  # 实盘资金/模拟盘资金比例，建议1为好
-        #     'log_level': ['debug', 'waring', 'error'],  # 实盘易日志输出级别
-        #     'sync_with_change': True,  # 是否指定只有发生了股票操作时才进行同步 , 这里重要，避免无效同步！！！！
-        # }],
         # # 模拟盘调仓邮件通知，暂时只试过QQ邮箱，其它邮箱不知道是否支持
         # [g.is_sim_trade, '_new_Email_notice_', '调仓邮件通知执行器', Email_notice, {
         #     'user': '123456@qq.com',    # QQmail
@@ -183,19 +136,6 @@ def select_strategy(context):
         [True, '', '手续费设置器', Set_slip_fee, {}],
         [True, '', '持仓信息打印器', Show_position, {}],
         [True, '', '统计执行器', Stat, {}],
-        # 用实盘易官方的同步API实现的同步，
-        # 实盘配置参考 https://github.com/sinall/ShiPanE-Python-SDK#id15
-        # [g.is_sim_trade,'','实盘易官方API同步',Shipane_Sync,{
-        #     'manager':'manager-1'}],
-        
-        
-        # [g.is_sim_trade, '_Purchase_new_stocks_', '实盘易申购新股', Purchase_new_stocks, {
-        #     'times': [[11, 24]],
-        #     'host':'111.111.111.111',   # 实盘易IP
-        #     'port':8888,    # 实盘易端口
-        #     'key':'',   # 实盘易Key
-        #     'clients': ['title:zhaoshang', 'title:guolian'] # 实盘易client列表,即一个规则支持同一个实盘易下的多个帐号同时打新
-        # }],
     ]
     common_config = [
         [True, '_other_pre_', '预先处理的辅助规则', Group_rules, {
@@ -251,7 +191,8 @@ def process_initialize(context):
     try:
         g.main.g.context = context
         g.main.process_initialize(context)
-    except:
+    except Exception as e:
+        log.error(str(e))
         pass
 
 
@@ -259,7 +200,8 @@ def process_initialize(context):
 def after_code_changed(context):
     try:
         g.main
-    except:
+    except Exception as e:
+        log.error(str(e))
         print '更新代码->原先不是OO策略，重新调用initialize(context)。'
         initialize(context)
         return
@@ -272,7 +214,7 @@ def after_code_changed(context):
         g.main.after_code_changed(context)
         g.main.log.info(g.main.show_strategy())
     except Exception as e:
-        # log.error('更新代码失败:' + str(e) + '\n重新创建策略')
+        log.error('更新代码失败:' + str(e) + '\n重新创建策略')
         # initialize(context)
         pass
 
@@ -290,7 +232,8 @@ class Rule_loger(object):
     def __init__(self, msg_header):
         try:
             self._owner_msg = msg_header + ':'
-        except:
+        except Exception as e:
+            log.error(str(e))
             self._owner_msg = '未知规则:'
 
     def debug(self, msg, *args, **kwargs):
@@ -868,8 +811,8 @@ class Filter_stock_list(Rule):
         return None
 
 
-# '''-----------------选股组合器2-----------------------'''
-class Pick_stocks2(Group_rules):
+# '''-----------------选股组合器-----------------------'''
+class Pick_stocks(Group_rules):
     def __init__(self, params):
         Group_rules.__init__(self, params)
         self.has_run = False
@@ -877,7 +820,8 @@ class Pick_stocks2(Group_rules):
     def handle_data(self, context, data):
         try:
             to_run_one = self._params.get('day_only_run_one', False)
-        except:
+        except Exception as e:
+            log.error(str(e))
             to_run_one = False
         if to_run_one and self.has_run:
             self.log.info('设置一天只选一次，跳过选股。')
@@ -887,7 +831,10 @@ class Pick_stocks2(Group_rules):
         for rule in self.rules:
             if isinstance(rule, Filter_query):
                 q = rule.filter(context, data, q)
-        stock_list = list(get_fundamentals(q)['code']) if q != None else []
+        stock_list = list(get_fundamentals(q)['code']) if q != None else white_list()
+        stock_list = intersect(stock_list, white_list())
+
+        print "we have %s stocks" % len(stock_list)
         for rule in self.rules:
             if isinstance(rule, Filter_stock_list):
                 stock_list = rule.filter(context, data, stock_list)
@@ -930,8 +877,8 @@ class FD_Filter(object):
 class Pick_financial_data(Filter_query):
     def filter(self, context, data, q):
         if q is None:
-            #             q = query(valuation,balance,cash_flow,income,indicator)
-            q = query(valuation)
+            q = query(valuation,balance,cash_flow,income,indicator)
+            # q = query(valuation)
 
         for fd_param in self._params.get('factors', []):
             if not isinstance(fd_param, FD_Factor):
@@ -947,7 +894,9 @@ class Pick_financial_data(Filter_query):
                 q = q.filter(
                     factor < fd_param.max
                 )
-        order_by = eval(self._params.get('order_by', None))
+        order_by = self._params.get('order_by', None)
+        if order_by is not None:
+            order_by = eval(order_by)
         sort_type = self._params.get('sort', SortType.asc)
         if order_by is not None:
             if sort_type == SortType.asc:
@@ -993,7 +942,7 @@ class Pick_financial_data(Filter_query):
 class Filter_financial_data(Filter_stock_list):
     def filter(self, context, data, stock_list):
         for fd_param in self._params.get('filters', []):
-            q = query(valuation).filter(
+            q = query(valuation,balance,cash_flow,income,indicator).filter(
                 valuation.code.in_(stock_list)
             )
             if not isinstance(fd_param, FD_Filter):
@@ -1029,6 +978,83 @@ class Filter_financial_data(Filter_stock_list):
         return '多因子过滤:' + s
 
 
+# 根据bolling策略来选择买入股票
+class Bolling_pick(Filter_stock_list):
+    def filter(self, context, data, stock_list):
+        #确定考虑几天的布林轨
+        num = self._params.get('num', 5)
+        #确定计算布林轨时使用几天的股票数据
+        days = self._params.get('days', 20)
+
+        picked_list = []
+        for stock in stock_list:
+            # 获取当前价格
+            current_price=data[stock].price
+            # 取得股票的收盘价信息
+            price = attribute_history(stock,num+days,'1d',('close','open'),skip_paused=True)
+            price.fillna(0, inplace=True)
+            # 创建一个num*days的二维数组来保存收盘价数据
+            price_array=np.arange(num*days).reshape(num,days)
+            for i in range(0,num):
+                for j in range(0,days):
+                    price_array[i][j]=price['close'][i+j]
+            #创建一个数组来保存中轨信息
+            mid=np.arange(num)
+            #创建一个数组来保存标准差
+            std=np.arange(num)
+            for i in range(0,num):
+                mid[i]=np.mean(price_array[i])
+                std[i]=np.std(price_array[i])
+            #用up来保存昨日的上轨线
+            up=mid[num-1]+2*std
+            #用down来保存昨日的下轨线
+            down=mid[num-1]-2*std
+            #用一个列表来保存每天是开口还是收口
+            #如果一天的标准差不比前一天小，则在open列表里记录
+            #True,反之记录False,在close列表里记录False,反之
+            #记录False
+            open=[]
+            close=[]
+            for i in range(0,num-1):
+                if std[i]>std[i+1]:
+                    close.append('True')
+                    open.append('False')
+                else:
+                    open.append('True')
+                    close.append('False')
+
+            #如果连续num天开口
+            if 'False' not in open:
+                #如果当前价格超过昨日的上轨
+                if current_price>mid[num-1]+2*std[num-1]:
+                    picked_list.append(stock)
+                    continue
+                #如果当前价格跌破了昨日的下轨
+                elif current_price<mid[num-1]-2*std[num-1]:
+                    # 出场判断
+                    pass
+            #如果连续num天收口
+            if 'False' not in close:
+                # 股价超过上轨时卖
+                if current_price > mid[num-1]+2*std[num-1]:
+                    # 出场判断
+                    pass
+                # 跌破下轨时买
+                elif current_price < mid[num-1]-2*std[num-1]:
+                    picked_list.append(stock)
+                    continue
+
+        return picked_list
+
+    def __str__(self):
+        #确定考虑几天的布林轨
+        num = self._params.get('num', 5)
+        #确定计算布林轨时使用几天的股票数据
+        days = self._params.get('days', 20)
+
+        return '布林线选股: 考虑%s天的布林轨, 计算布林轨时使用了%s天的股票数据' % (num, days)
+
+        
 # '''------------------创业板过滤器-----------------'''
 class Filter_gem(Filter_stock_list):
     def filter(self, context, data, stock_list):
@@ -1242,6 +1268,47 @@ class Sort_financial_data(SortBase):
         return '[权重: %s ] [排序: %s ] %s' % (self.weight, self._sort_type_str(), self.memo)
 
 
+# --- 按成交量排序 ---
+class Sort_volumn(SortBase):
+    def sort(self, context, data, stock_list):
+        days = self._params.get('day', 20)
+        r = []
+        for stock in stock_list:
+            volumn = data[stock].mavg(days,'volume')
+            if volumn != 0:
+                r.append([stock, volumn])
+        r = sorted(r, key=lambda x: x[1], reverse=not self.is_asc)
+        return [stock for stock, volumn in r]
+
+    def __str__(self):
+        return '[权重: %s ] [排序: %s ] %s' % (self.weight, self._sort_type_str(), self.memo)
+
+# '''------------------首席质量因子排序-----------------'''
+#（收入(total_operating_revenue) - 成本(total_operating_cost)）/ 资产（assets)
+class Sort_gross_profit(SortBase):
+    def sort(self, context, data, stock_list):
+        q = query(income.code, income.total_operating_revenue, income.total_operating_cost, balance.total_assets).filter(
+                valuation.code.in_(stock_list)
+            )
+        df = get_fundamentals(q)
+        df = df.fillna(value = 0)
+        df = df[df.total_operating_revenue > 0]
+        df = df.reset_index(drop = True)
+        df = df[df.total_assets > 0]
+        df = df.reset_index(drop = True)
+        df['GP'] = 1.0*(df['total_operating_revenue'] - df['total_operating_cost']) / df['total_assets']
+
+        df = df.drop(['total_assets', 'total_operating_revenue', 'total_operating_cost'], axis=1)
+        # df = df.sort(columns='GP', ascending=False)
+        #print df.head(10)
+        stock_list = list(df['code'])
+
+        return stock_list
+
+    def __str__(self):
+        return '首席质量因子排序器:' + '[权重: %s ] [排序: %s ] %s' % (self.weight, self._sort_type_str(), self.memo)
+    
+
 # '''------------------截取欲购股票数-----------------'''
 class Filter_buy_count(Filter_stock_list):
     def __init__(self, params):
@@ -1413,17 +1480,20 @@ class Set_sys_params(Rule):
         try:
             # 一律使用真实价格
             set_option('use_real_price', self._params.get('use_real_price', True))
-        except:
+        except Exception as e:
+            log.error(str(e))
             pass
         try:
             # 过滤log
             log.set_level(*(self._params.get('level', ['order', 'error'])))
-        except:
+        except Exception as e:
+            log.error(str(e))
             pass
         try:
             # 设置基准
             set_benchmark(self._params.get('benchmark', '000300.XSHG'))
-        except:
+        except Exception as e:
+            log.error(str(e))
             pass
             # set_benchmark('399006.XSHE')
             # set_slippage(FixedSlippage(0.04))
@@ -1629,6 +1699,17 @@ class Stat(Rule):
 
 '''===============================其它基础函数=================================='''
 
+def unique(a):
+    """ return the list with duplicate elements removed """
+    return list(set(a))
+
+def intersect(a, b):
+    """ return the intersection of two lists """
+    return list(set(a) & set(b))
+
+def union(a, b):
+    """ return the union of two lists """
+    return list(set(a) | set(b))
 
 def get_growth_rate(security, n=20):
     '''
@@ -1699,200 +1780,6 @@ def join_list(pl, connector=' ', step=5):
             result += connector
     return result
 
-
-'''=================================实盘易相关================================='''
-
-
-# '''-------------------实盘易对接 同步持仓-----------------------'''
-class Shipane_manager(Op_stocks_record):
-    def __init__(self, params):
-        Op_stocks_record.__init__(self, params)
-        try:
-            log
-            self._logger = shipane_sdk._Logger()
-        except NameError:
-            import logging
-            self._logger = logging.getLogger()
-        self.moni_trader = JoinQuantTrader()
-        self.shipane_trader = ShipaneTrader(self._logger, **params)
-        self.syncer = TraderSynchronizer(self._logger
-                                         , self.moni_trader
-                                         , self.shipane_trader
-                                         , normalize_code=normalize_code
-                                         , **params)
-        self._cost = params.get('cost', 100000)
-        self._source_trader_record = []
-        self._dest_trader_record = []
-
-    def update_params(self, context, params):
-        Op_stocks_record.update_params(self, context, params)
-        self._cost = params.get('cost', 100000)
-        self.shipane_trader = ShipaneTrader(self._logger, **params)
-        self.syncer = TraderSynchronizer(self._logger
-                                         , self.moni_trader
-                                         , self.shipane_trader
-                                         , normalize_code=normalize_code
-                                         , **params)
-
-    def after_adjust_end(self, context, data):
-        # 是否指定只在有发生调仓动作时进行调仓
-        if self._params.get('sync_with_change', True):
-            if self.position_has_change:
-                self.syncer.execute(context, data)
-        else:
-            self.syncer.execute(context, data)
-        self.position_has_change = False
-
-    def on_clear_position(self, context, pindex=[0]):
-        if self._params.get('sync_with_change', True):
-            if self.position_has_change:
-                self.syncer.execute(context, None)
-        else:
-            self.syncer.execute(context, None)
-        self.position_has_change = False
-
-    def after_trading_end(self, context):
-        Op_stocks_record.after_trading_end(self, context)
-        try:
-            self.moni_trader.context = context
-            self.shipane_trader.context = context
-            # 记录模拟盘市值
-            pf = self.moni_trader.portfolio
-            self._source_trader_record.append([self.moni_trader.current_dt, pf.positions_value + pf.available_cash])
-            # 记录实盘市值
-            pf = self.shipane_trader.portfolio
-            self._dest_trader_record.append([self.shipane_trader.current_dt, pf.positions_value + pf.available_cash])
-            self._logger.info('[实盘管理器] 实盘涨幅统计:\n' + self.get_rate_str(self._dest_trader_record))
-            self._logger.info('[实盘管理器] 实盘持仓统计:\n' + self._get_trader_portfolio_text(self.shipane_trader))
-        except Exception as e:
-            self._logger.error('[实盘管理器] 盘后数据处理错误!' + str(e))
-
-    def get_rate_str(self, record):
-        if len(record) > 1:
-            if record[-2][1] == 0:
-                return '穷鬼，你没钱，还统计啥'
-            rate_total = (record[-1][1] - self._cost) / self._cost
-            rate_today = (record[-1][1] - record[-2][1]) / record[-2][1]
-            now = datetime.datetime.now()
-            record_week = [x for x in record if (now - x[0]).days <= 7]
-            rate_week = (record[-1][1] - record_week[0][1]) / record_week[0][1] if len(record_week) > 0 else 0
-            record_mouth = [x for x in record if (now - x[0]).days <= 30]
-            rate_mouth = (record[-1][1] - record_mouth[0][1]) / record_mouth[0][1] if len(record_mouth) > 0 else 0
-            return '资产涨幅:[总:%.2f%%] [今日%.2f%%] [最近一周:%.2f%%] [最近30:%.2f%%]' % (
-                rate_total * 100
-                , rate_today * 100
-                , rate_week * 100
-                , rate_mouth * 100)
-        else:
-            return '数据不足'
-        pass
-
-    # 获取持仓信息，HTML格式
-    def _get_trader_portfolio_html(self, trader):
-        pf = trader.portfolio
-        total_values = pf.positions_value + pf.available_cash
-        position_str = "总资产: [ %d ]<br>市值: [ %d ]<br>现金   : [ %d ]<br>" % (
-            total_values,
-            pf.positions_value, pf.available_cash
-        )
-        position_str += "<table border=\"1\"><tr><th>股票代码</th><th>持仓</th><th>当前价</th><th>盈亏</th><th>持仓比</th></tr>"
-        for position in pf.positions.values():
-            stock = position.security
-            if position.price - position.avg_cost > 0:
-                tr_color = 'red'
-            else:
-                tr_color = 'green'
-            stock_raite = (position.total_amount * position.price) / total_values * 100
-            position_str += '<tr style="color:%s"><td> %s </td><td> %d </td><td> %.2f </td><td> %.2f%% </td><td> %.2f%%</td></tr>' % (
-                tr_color,
-                show_stock(normalize_code(stock)),
-                position.total_amount, position.price,
-                (position.price - position.avg_cost) / position.avg_cost * 100,
-                stock_raite
-            )
-
-        return position_str + '</table>'
-
-    # 获取持仓信息，普通文本格式
-    def _get_trader_portfolio_text(self, trader):
-        pf = trader.portfolio
-        total_values = pf.positions_value + pf.available_cash
-        position_str = "总资产 : [ %d ] 市值: [ %d ] 现金   : [ %d ]" % (
-            total_values,
-            pf.positions_value, pf.available_cash
-        )
-
-        table = PrettyTable(["股票", "持仓", "当前价", "盈亏", "持仓比"])
-        for stock in pf.positions.keys():
-            position = pf.positions[stock]
-            if position.total_amount == 0:
-                continue
-            stock_str = show_stock(normalize_code(stock))
-            stock_raite = (position.total_amount * position.price) / total_values * 100
-            table.add_row([
-                stock_str,
-                position.total_amount,
-                position.price,
-                "%.2f%%" % ((position.price - position.avg_cost) / position.avg_cost * 100),
-                "%.2f%%" % (stock_raite)]
-            )
-        return position_str + '\n' + str(table)
-
-    def __str__(self):
-        return '实盘管理类:[同步持仓] [实盘邮件] [实盘报表]'
-        
-# 基于实盘易官方同步SDK实现的同步
-class Shipane_Sync(Rule):
-    # 覆盖level方法，强制返回为Finally级别
-    @property
-    def level(self):
-        return Rule_Level.Finally
-
-    def initialize(self, context):
-        self._manager = shipane_sdk.StrategyManager(context, self._params.get('manager', 'manager-1'))
-
-    def process_initialize(self,context):
-        self._manager = shipane_sdk.StrategyManager(context, self._params.get('manager','manager-1'))
-
-    def handle_data(self, context, data):
-        self._manager.sync(context)
-
-
-# '''------------------------------通过实盘易申购新股----------------------'''
-class Purchase_new_stocks(Rule):
-    def __init__(self, params):
-        Rule.__init__(self, params)
-        self.times = params.get('times', [[10, 00]])
-        self.host = params.get('host', '')
-        self.port = params.get('port', 8888)
-        self.key = params.get('key', '')
-        self.clients = params.get('clients', [])
-
-    def update_params(self, context, params):
-        Rule.update_params(self, context, params)
-        self.times = params.get('times', [[10, 00]])
-        self.host = params.get('host', '')
-        self.port = params.get('port', 8888)
-        self.key = params.get('key', '')
-        self.clients = params.get('clients', [])
-
-    def handle_data(self, context, data):
-        hour = context.current_dt.hour
-        minute = context.current_dt.minute
-        if not [hour, minute] in self.times:
-            return
-        try:
-            import shipane_sdk
-        except:
-            pass
-        shipane = shipane_sdk.Client(g.log_type(self.memo), key=self.key, host=self.host, port=self.port,
-                                     show_info=False)
-        for client_param in self.clients:
-            shipane.purchase_new_stocks(client_param)
-
-    def __str__(self):
-        return '实盘易申购新股[time: %s host: %s:%d  key: %s client:%s] ' % (
-            self.times, self.host, self.port, self.key, self.clients)
             
 # '''------------------邮件通知器-----------------'''
 class Email_notice(Op_stocks_record):
