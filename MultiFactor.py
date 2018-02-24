@@ -9,6 +9,7 @@ from email.mime.text import MIMEText
 from email.header import Header
 import datetime
 import enum
+from jqlib.technical_analysis import *
 
 def pick_strategy(buy_count):
     g.strategy_memo = '布林线选股'
@@ -17,29 +18,29 @@ def pick_strategy(buy_count):
         [True, '', '过滤创业板', Filter_gem, {}],
         [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
         [True, '', '布林线选股', Bolling_pick, {
-            'num' : 7,
-            'days': 30
+            'lag' : 5,
+            'lim': 0.12
         }],
-        [True, '', '权重排序', SortRules, {
-            'config': [
-                [True, '20volumn', '20日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 20}],
-                [True, '60volumn', '60日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 60}],
-                [True, '120volumn', '120日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 120}],
-                [True, '180volumn', '180日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 180}],
-            ]}
-        ],
+        # [True, '', '权重排序', SortRules, {
+        #     'config': [
+        #         [True, '20volumn', '20日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 20}],
+        #         [True, '60volumn', '60日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 60}],
+        #         [True, '120volumn', '120日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 120}],
+        #         [True, '180volumn', '180日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 180}],
+        #     ]}
+        # ],
         [True, '', '获取最终选股数', Filter_buy_count, {
             'buy_count': buy_count  # 最终入选股票数
         }],
@@ -981,81 +982,130 @@ class Filter_financial_data(Filter_stock_list):
 
 # 根据bolling策略来选择买入股票
 class Bolling_pick(Filter_stock_list):
+    def __init__(self, params):
+        self.lag = params.get('lag', 5)
+        self.lim = params.get('lim', 0.12)
+
     def filter(self, context, data, stock_list):
-        #确定考虑几天的布林轨
-        num = self._params.get('num', 5)
-        #确定计算布林轨时使用几天的股票数据
-        days = self._params.get('days', 20)
+        # 首先得到布林带宽在lim以内的股票
+        buy_list = self.get_buy_list(context, stock_list)
+        if buy_list != []:
+            # 得到今日股票前lag日的布林线数据
+            up_line,mid_line,dn_line,width = self.get_bollinger(context,buy_list,self.lag)
+            # 选取昨日放量上涨且收盘价位于布林中线以上且布林带放大的股票，
+            # 依据昨日量价涨幅的综合评分对这些股票进行排序，取前Max-N个
+            buy_list = self.grade_filter(buy_list,self.lag,up_line,width,context)
 
-        picked_list = []
-        for stock in stock_list:
-            # 获取当前价格
-            current_price=data[stock].price
-            # 取得股票的收盘价信息
-            price = attribute_history(stock,num+days,'1d',('close','open'),skip_paused=True)
-            price.fillna(0, inplace=True)
-            # 创建一个num*days的二维数组来保存收盘价数据
-            price_array=np.arange(num*days).reshape(num,days)
-            for i in range(0,num):
-                for j in range(0,days):
-                    price_array[i][j]=price['close'][i+j]
-            #创建一个数组来保存中轨信息
-            mid=np.arange(num)
-            #创建一个数组来保存标准差
-            std=np.arange(num)
-            for i in range(0,num):
-                mid[i]=np.mean(price_array[i])
-                std[i]=np.std(price_array[i])
-            #用up来保存昨日的上轨线
-            up=mid[num-1]+2*std
-            #用down来保存昨日的下轨线
-            down=mid[num-1]-2*std
-            #用一个列表来保存每天是开口还是收口
-            #如果一天的标准差不比前一天小，则在open列表里记录
-            #True,反之记录False,在close列表里记录False,反之
-            #记录False
-            open=[]
-            close=[]
-            for i in range(0,num-1):
-                if std[i]>std[i+1]:
-                    close.append('True')
-                    open.append('False')
-                else:
-                    open.append('True')
-                    close.append('False')
-
-            #如果连续num天开口
-            if 'False' not in open:
-                #如果当前价格超过昨日的上轨
-                if current_price>mid[num-1]+2*std[num-1]:
-                    picked_list.append(stock)
-                    continue
-                #如果当前价格跌破了昨日的下轨
-                elif current_price<mid[num-1]-2*std[num-1]:
-                    # 出场判断
-                    pass
-            #如果连续num天收口
-            if 'False' not in close:
-                # 股价超过上轨时卖
-                if current_price > mid[num-1]+2*std[num-1]:
-                    # 出场判断
-                    pass
-                # 跌破下轨时买
-                elif current_price < mid[num-1]-2*std[num-1]:
-                    picked_list.append(stock)
-                    continue
-
-        print show_rule_execute_result(self, picked_list)
-
-        return picked_list
+        return buy_list
 
     def __str__(self):
-        #确定考虑几天的布林轨
-        num = self._params.get('num', 5)
-        #确定计算布林轨时使用几天的股票数据
-        days = self._params.get('days', 20)
+        return '布林线选股: 考虑%s天的布林轨, 布林带带宽的极限:%s' % (self.lag, self.lim)
 
-        return '布林线选股: 考虑%s天的布林轨, 计算布林轨时使用了%s天的股票数据' % (num, days)
+    def get_buy_list(self, context, stock_list):
+        # 先选出当日未停牌的股票
+        # 得到当日是否停牌的dataframe，停牌为1，未停牌为0
+        suspend_info = get_price(stock_list,start_date=context.current_dt,end_date=context.current_dt,frequency='daily',fields='paused')['paused'].T
+        # 过滤掉停牌股票
+        unsuspend_index = suspend_info.iloc[:,0]<1
+        unsuspend_stock_ = list(suspend_info[unsuspend_index].index)
+        # 进一步筛选出最近lag+1日未曾停牌的股票list
+        unsuspend_stock = []
+        for stock in unsuspend_stock_:
+            if sum(attribute_history(stock,self.lag+1,'1d',('paused'),skip_paused=False))[0]==0:
+                unsuspend_stock.append(stock)
+        # 如果没有符合要求的股票则返回空
+        if unsuspend_stock == []:
+            log.info('没有过去十日没停牌的股票')
+            return unsuspend_stock
+        # 筛选出昨日前lag日布林带宽度在lim以内的股票
+        up,mid,dn,wd = self.get_bollinger(context,unsuspend_stock,self.lag)
+        narrow_index = wd.iloc[:,-2]<self.lim
+        for day in range(2,self.lag):
+            narrow_index = narrow_index&(wd.iloc[:,-day]<self.lim)
+        narrow_stock = [unsuspend_stock[i] for i in [ind for ind,bool_value in enumerate(narrow_index) if bool_value==True]]
+        if len(narrow_stock) != 0:
+            log.info('今日潜在满足要求的标的有：'+str(len(narrow_stock)))
+        return narrow_stock
+        
+    def get_bollinger(self, context, buy, lag):
+        # 创建以股票代码为index的dataframe对象来存储布林带信息
+        dic = dict.fromkeys(buy,[0]*(lag+1)) # 创建一个以股票代码为keys的字典
+        up = pd.DataFrame.from_dict(dic).T # 用字典构造dataframe
+        mid = pd.DataFrame.from_dict(dic).T
+        dn = pd.DataFrame.from_dict(dic).T
+        wd = pd.DataFrame.from_dict(dic).T
+        for stock in buy:
+            for j in range(lag+1):
+                up_,mid_,dn_ = Bollinger_Bands(stock,check_date=context.previous_date-datetime.timedelta(days=j),timeperiod=20,nbdevup=2,nbdevdn=2)
+                up.loc[stock,j] = up_[stock]
+                mid.loc[stock,j] = mid_[stock]
+                dn.loc[stock,j] = dn_[stock]
+                wd.loc[stock,j] = (up[j][stock] - dn[j][stock])/mid[j][stock]
+        return up,mid,dn,wd
+        
+    def grade_filter(self, buy, lag, up_line, wd, context):
+        # 选出连续开口的股票
+        open_index = wd.iloc[:,-1]<wd.iloc[:,-2]
+        for day in range(1,lag-2):
+            open_index = open_index&(wd.iloc[:,-day]<wd.iloc[:,-day-1])
+        buy = [buy[i] for i in [ind for ind,bool_value in enumerate(open_index) if bool_value==True]]
+        up_line = up_line[open_index]
+        wd = wd[open_index]
+        # 如果有连续开口的股票，则在连续开口的股票中进行下一步筛选
+        if len(buy)>0:
+            close_buy = history(lag+1,'1d','close',buy).T
+            open_buy = history(lag+1,'1d','open',buy).T
+            volume_buy = history(lag+1,'1d','volume',buy).T
+            # 选取昨日放量上涨的股票，且收盘价位于中线上方，在上线的下方
+            stock_rise_index = (close_buy.iloc[:,-1]>open_buy.iloc[:,-1])&(close_buy.iloc[:,-1]>close_buy.iloc[:,-2])&(volume_buy.iloc[:,-1]>volume_buy.iloc[:,-2])&(close_buy.iloc[:,-1]>up_line.iloc[:,-1])
+            close_buy = close_buy[stock_rise_index]
+            open_buy = open_buy[stock_rise_index]
+            volume_buy = volume_buy[stock_rise_index]
+            buy = list(close_buy.index)
+            if len(buy)>0:
+                # 用一个二维数组来存放股票的涨幅和量的涨幅
+                portions = [([0]*2) for i in range(len(close_buy))]
+                for i in range(len(close_buy)):
+                    portions[i][0] = (close_buy.iloc[i,0]-open_buy.iloc[i,0])/open_buy.iloc[i,0]
+                    portions[i][1] = (volume_buy.iloc[i,0]-volume_buy.iloc[i,1])/volume_buy.iloc[i,1]
+                self.get_rank(portions)  # 将涨幅指标替换为排名指标
+                grade = np.dot(portions,[[1.2],[0.5]])
+                self.grade_rank(grade,buy)  # 对grade进行冒泡排序
+                return buy
+            else:
+                return []
+        else:
+            return []
+        
+    def get_rank(self, por):
+        # 定义一个数组记录一开始的位置
+        indexes = range(len(por))
+        # 对每一列进行冒泡排序
+        for col in range(len(por[0])):
+            for row in range(len(por)):
+                for nrow in range(row):
+                    if por[nrow][col]<por[row][col]:
+                        indexes[nrow],indexes[row] = indexes[row],indexes[nrow]
+                        for ecol in range(len(por[0])):
+                            por[nrow][ecol],por[row][ecol] = por[row][ecol],por[nrow][ecol]
+            for row in range(len(por)):
+                por[row][col] = row
+        # 再对indexes进行一次冒泡排序，使por恢复原顺序，每一行与buy中的股票代码相对应
+        for row in range(len(por)):
+            for nrow in range(row):
+                if indexes[nrow]<indexes[row]:
+                    indexes[nrow],indexes[row] = indexes[row],indexes[nrow]
+                    for col in range(len(por[0])):
+                        por[nrow][col],por[row][col] = por[row][col],por[nrow][col]
+        return por
+                        
+    def grade_rank(self, grades, buys):
+        for row in range(len(grades)):
+            for nrow in range(row):
+                if grades[nrow]>grades[row]:
+                    grades[nrow],grades[row] = grades[row],grades[nrow]
+                    buys[nrow],buys[row] = buys[row],buys[nrow]
+        return grades,buys
 
         
 # '''------------------创业板过滤器-----------------'''
