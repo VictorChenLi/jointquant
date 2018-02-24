@@ -8,39 +8,62 @@ import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
 import datetime
+import time
 import enum
+from jqdata import gta
 from jqlib.technical_analysis import *
 
 def pick_strategy(buy_count):
-    g.strategy_memo = '布林线选股'
+    g.strategy_memo = '首席质量因子'
 
     pick_config = [
+        [True, '', '多因子范围选取器', Pick_financial_data, {
+            'factors': [
+                # FD_Factor('valuation.circulating_market_cap', min=0, max=100)  # 流通市值0~100亿
+                FD_Factor('valuation.pe_ratio', min=0, max=200),  # 200 > pe > 0
+                FD_Factor('valuation.pb_ratio', min=0),  # pb_ratio > 0
+                FD_Factor('valuation.ps_ratio', max=2.5) # ps_ratio < 2.5
+            ]
+        }],
+        [True, '', '多因子过滤器', Filter_financial_data, {
+            'filters': [
+                # FD_Filter('valuation.market_cap',sort=SortType.desc, percent=80),
+                FD_Filter('valuation.pe_ratio',sort=SortType.asc, percent=40),
+                FD_Filter('valuation.pb_ratio',sort=SortType.asc, percent=40),
+            ]
+        }],
         [True, '', '过滤创业板', Filter_gem, {}],
         [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
-        [True, '', '布林线选股', Bolling_pick, {
-            'lag' : 5,
-            'lim': 0.12
-        }],
-        # [True, '', '权重排序', SortRules, {
-        #     'config': [
-        #         [True, '20volumn', '20日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 20}],
-        #         [True, '60volumn', '60日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 60}],
-        #         [True, '120volumn', '120日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 120}],
-        #         [True, '180volumn', '180日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 180}],
-        #     ]}
-        # ],
+        [True, '', '权重排序', SortRules, {
+            'config': [
+                [True, '', '流通市值排序', Sort_financial_data, {
+                    'factor': 'valuation.circulating_market_cap',
+                    'sort': SortType.asc
+                    , 'weight': 50}],
+                [True, '', '首席质量因子排序', Sort_gross_profit, {
+                    'sort': SortType.desc,
+                    'weight': 100}],
+                [True, '20volumn', '20日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 20}],
+                [True, '60volumn', '60日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 60}],
+                [True, '120volumn', '120日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 120}],
+                [True, '180volumn', '180日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 180}],
+            ]}
+        ],
+        # [True, '', '低估价值选股', Underestimate_value_pick, {}],
+        # [True, '', '布林线选股', Bolling_pick, {}],
+        # [True, '', '股息率选股', Dividend_yield_pick, {}],
         [True, '', '获取最终选股数', Filter_buy_count, {
             'buy_count': buy_count  # 最终入选股票数
         }],
@@ -57,7 +80,7 @@ def pick_strategy(buy_count):
 #白名单，股票均在这个list里面选取
 def white_list():
     return get_index_stocks("399951.XSHE") + get_index_stocks("000300.XSHG") + get_index_stocks("000001.XSHG")
-    # return get_index_stocks("000001.XSHG")
+    # return get_index_stocks("000300.XSHG")
 
 
 # ==================================策略配置==============================================
@@ -826,6 +849,7 @@ class Pick_stocks(Group_rules):
             self.log.info('设置一天只选一次，跳过选股。')
             return
 
+        # 执行 filter query
         q = None
         for rule in self.rules:
             if isinstance(rule, Filter_query):
@@ -835,6 +859,8 @@ class Pick_stocks(Group_rules):
         stock_list = intersect(stock_list, white_list())
 
         print "选股得到%s只股票" % len(stock_list)
+
+        # 执行 Filter_stock_list
         for rule in self.rules:
             if isinstance(rule, Filter_stock_list):
                 stock_list = rule.filter(context, data, stock_list)
@@ -980,6 +1006,118 @@ class Filter_financial_data(Filter_stock_list):
         return '多因子过滤:' + s
 
 
+# 股息率选股
+class Dividend_yield_pick(Filter_stock_list):
+    def __init__(self, params):
+        pass
+
+    def filter(self, context, data, stock_list):
+        year = context.current_dt.year-1
+        
+        #将当前股票池转换为国泰安的6位股票池
+        stocks_symbol=[]
+        for s in stock_list:
+            stocks_symbol.append(s[0:6])
+
+            
+        #如果知道前一年的分红，那么得到前一年的分红数据
+        df1 = gta.run_query(query(
+                gta.STK_DIVIDEND.SYMBOL,#股票代码
+                gta.STK_DIVIDEND.DIVIDENTBT,#股票分红
+                gta.STK_DIVIDEND.DECLAREDATE#分红消息的时间
+            ).filter(
+                gta.STK_DIVIDEND.ISDIVIDEND == 'Y',#有分红的股票
+                gta.STK_DIVIDEND.DIVDENDYEAR == year,
+               #且分红信息在上一年度
+                gta.STK_DIVIDEND.SYMBOL.in_(stocks_symbol)
+            )).dropna(axis=0)
+        
+        stocks_symbol_this_year=list(df1['SYMBOL'])
+        
+        #如果前一年的分红不知道，那么知道前两年的分红数据
+        df2 = gta.run_query(query(
+            gta.STK_DIVIDEND.SYMBOL,#股票代码
+            gta.STK_DIVIDEND.DIVIDENTBT,#股票分红
+            gta.STK_DIVIDEND.DECLAREDATE#分红消息的时间
+        ).filter(
+            gta.STK_DIVIDEND.ISDIVIDEND == 'Y',#有分红的股票
+            gta.STK_DIVIDEND.DIVDENDYEAR == year-1,
+           #且分红信息在上一年度
+            gta.STK_DIVIDEND.SYMBOL.in_(stocks_symbol),
+            gta.STK_DIVIDEND.SYMBOL.notin_(stocks_symbol_this_year)
+        )).dropna(axis=0)
+        
+        df= pd.concat((df2,df1))
+        # 下面四行代码用于选择在当前时间内能已知去年股息信息的股票
+        df['pubtime'] = map(lambda x: int(x.split('-')[0]+x.split('-')[1]+x.split('-')[2]),df['DECLAREDATE'])
+        currenttime  = int(str(context.current_dt)[0:4]+str(context.current_dt)[5:7]+str(context.current_dt)[8:10])
+        
+        # 筛选出pubtime小于当前时期的股票，然后剔除'DECLAREDATE','pubtime','SYMBOL'三列
+        # 并且将DIVIDENTBT 列转换为float
+        df = df[(df.pubtime < currenttime)]
+        
+        df['SYMBOL']=map(normalize_code,list(df['SYMBOL']))
+        df.index=list(df['SYMBOL'])
+        
+        df=df.drop(['SYMBOL','pubtime','DECLAREDATE'],axis=1)
+
+        df['DIVIDENTBT'] = map(float, df['DIVIDENTBT'])
+        
+        #接下来这一步是考虑多次分红的股票，因此需要累加股票的多次分红
+        #按照股票代码分堆
+        df = df.groupby(df.index).sum()
+        
+        #得到当前股价
+        Price=history(1, unit='1d', field='close', security_list=list(df.index), df=True, skip_paused=False, fq='pre')
+        Price=Price.T
+        df['pre_close']=Price
+        
+        #计算股息率 = 股息/股票价格
+        df['divpercent']=df['DIVIDENTBT']/df['pre_close']
+        # 从大到小排序股息率
+        df=df.sort(columns=['divpercent'], axis=0, ascending=False)
+        Buylist =list(df.index)
+
+        print show_rule_execute_result(self, Buylist)
+
+        return Buylist
+
+    def __str__(self):
+        return '按股息率从大到小选股'
+
+# 迈克尔•普莱斯低估价值选股策略
+class Underestimate_value_pick(Filter_stock_list):
+    def __init__(self, params):
+        pass
+
+    def filter(self, context, data, stock_list):
+        stocks = get_fundamentals(query(
+            valuation.code,
+            valuation.pb_ratio,
+            balance.total_assets,
+            balance.total_liability,
+            balance.total_current_assets,
+            balance.total_current_liability
+        ).filter(
+            valuation.code.in_(stock_list),
+            valuation.pb_ratio < 2,
+            valuation.pb_ratio > 0,
+            balance.total_current_assets/balance.total_current_liability > 1.2
+        ))
+
+        stocks['Debt_Asset'] = stocks['total_liability']/stocks['total_assets']
+        median = stocks['Debt_Asset'].median()
+        picked_list = stocks[stocks['Debt_Asset'] > median].code
+        picked_list = list(picked_list)
+
+        print show_rule_execute_result(self, picked_list);
+
+        return picked_list
+
+    def __str__(self):
+        return '低估价值选股策略:\n\t\t1.股价与每股净值比小于2\n\t\t2.负债比例高于市场平均值\n\t\t3.企业的流动资产至少是流动负债的1.2倍'
+
+
 # 根据bolling策略来选择买入股票
 class Bolling_pick(Filter_stock_list):
     def __init__(self, params):
@@ -993,9 +1131,10 @@ class Bolling_pick(Filter_stock_list):
             # 得到今日股票前lag日的布林线数据
             up_line,mid_line,dn_line,width = self.get_bollinger(context,buy_list,self.lag)
             # 选取昨日放量上涨且收盘价位于布林中线以上且布林带放大的股票，
-            # 依据昨日量价涨幅的综合评分对这些股票进行排序，取前Max-N个
+            # 依据昨日量价涨幅的综合评分对这些股票进行排序
             buy_list = self.grade_filter(buy_list,self.lag,up_line,width,context)
 
+        print show_rule_execute_result(self, buy_list)
         return buy_list
 
     def __str__(self):
@@ -1024,7 +1163,7 @@ class Bolling_pick(Filter_stock_list):
             narrow_index = narrow_index&(wd.iloc[:,-day]<self.lim)
         narrow_stock = [unsuspend_stock[i] for i in [ind for ind,bool_value in enumerate(narrow_index) if bool_value==True]]
         if len(narrow_stock) != 0:
-            log.info('今日潜在满足要求的标的有：'+str(len(narrow_stock)))
+            log.info('今日潜在满足要求的bolling标的有：'+str(len(narrow_stock)))
         return narrow_stock
         
     def get_bollinger(self, context, buy, lag):
@@ -1068,9 +1207,9 @@ class Bolling_pick(Filter_stock_list):
                 for i in range(len(close_buy)):
                     portions[i][0] = (close_buy.iloc[i,0]-open_buy.iloc[i,0])/open_buy.iloc[i,0]
                     portions[i][1] = (volume_buy.iloc[i,0]-volume_buy.iloc[i,1])/volume_buy.iloc[i,1]
-                self.get_rank(portions)  # 将涨幅指标替换为排名指标
+                portions = self.get_rank(portions)  # 将涨幅指标替换为排名指标
                 grade = np.dot(portions,[[1.2],[0.5]])
-                self.grade_rank(grade,buy)  # 对grade进行冒泡排序
+                grade, buy = self.grade_rank(grade,buy)  # 对grade进行冒泡排序
                 return buy
             else:
                 return []
