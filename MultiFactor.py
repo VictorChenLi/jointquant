@@ -64,7 +64,7 @@ def pick_strategy(buy_count):
         # [True, '', '低估价值选股', Underestimate_value_pick, {}],
         # [True, '', '布林线选股', Bolling_pick, {}],
         # [True, '', '股息率选股', Dividend_yield_pick, {}],
-        [True, '', 'FFScore选股', FFScore_value_pick, {}],
+        # [True, '', 'FFScore选股', FFScore_value_pick, {}],
         [True, '', '获取最终选股数', Filter_buy_count, {
             'buy_count': buy_count  # 最终入选股票数
         }],
@@ -101,14 +101,22 @@ def select_strategy(context):
         [True, '_time_c_', '调仓时间', Time_condition, {
             'times': [[14, 50]],  # 调仓时间列表，二维数组，可指定多个时间点
         }],
-        [True, '_Stop_loss_by_price_', '指数最高低价比值止损器', Stop_loss_by_price, {
-            'index': '000001.XSHG',  # 使用的指数,默认 '000001.XSHG'
-            'day_count': 160,  # 可选 取day_count天内的最高价，最低价。默认160
-            'multiple': 2.2  # 可选 最高价为最低价的multiple倍时，触 发清仓
-        }],
-        [True, '', '多指数20日涨幅止损器', Mul_index_stop_loss, {
-            'indexs': [index2, index8],
-            'min_rate': 0.005
+        [True, '', '止损策略', Group_rules, {
+            'config':[
+                [True, '_Stop_loss_by_price_', '指数最高低价比值止损器', Stop_loss_by_price, {
+                    'index': '000001.XSHG',  # 使用的指数,默认 '000001.XSHG'
+                    'day_count': 160,  # 可选 取day_count天内的最高价，最低价。默认160
+                    'multiple': 2.2  # 可选 最高价为最低价的multiple倍时，触 发清仓
+                }],
+                [True, '', '多指数20日涨幅止损器', Mul_index_stop_loss, {
+                    'indexs': [index2, index8],
+                    'min_rate': 0.005
+                }],
+                [True, '', '个股止损器', Stop_loss_win_for_single, {
+                    'accumulate_loss': -0.1,
+                    'accumulate_win': 0.2
+                }],
+            ]
         }],
         [True, '', '调仓日计数器', Period_condition, {
             'period': adjust_days,  # 调仓频率,日
@@ -741,6 +749,44 @@ class Period_condition(Weight_Base):
             self.period, self.day_count)
 
 
+class Stop_loss_win_for_single(Rule):
+    def __init__(self, params):
+        self.accumulate_loss = params.get('accumulate_loss', None)
+        self.accumulate_win = params.get('accumulate_win', None)
+        pass
+
+    def update_params(self, context, params):
+        self.accumulate_loss = params.get('accumulate_loss', self.accumulate_loss)
+        self.accumulate_win = params.get('accumulate_win', self.accumulate_win)
+
+    # 计算股票累计收益率（从建仓至今）
+    def security_accumulate_return(self, context, data, stock):
+        current_price = data[stock].price
+        cost = context.portfolio.positions[stock].avg_cost
+        if cost != 0:
+            return (current_price-cost)/cost
+        else:
+            return None
+
+    def handle_data(self, context, data):
+        for stock in context.portfolio.positions.keys():
+            accumulate_return = self.security_accumulate_return(context,data,stock);
+            if accumulate_return != None \
+            and ( (self.accumulate_loss !=None and accumulate_return < self.accumulate_loss) \
+            or (self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
+                    position = context.portfolio.long_positions[stock]
+                    # 平仓，并且 is_normal=False, 需要重新调仓
+                    self.log.warn('{0} 该股累计{1}超过{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), "涨幅" if accumulate_return > 0 else "跌幅", (self.accumulate_win if accumulate_return > 0 else self.accumulate_loss)*100))
+                    self.g.close_position(self, position, False)
+
+    def __str__(self):
+        s =  '个股止损器:'
+        if self.accumulate_win != None:
+            s += '[参数: 止盈点为{0}%]'.format(self.accumulate_win * 100)
+        if self.accumulate_loss != None:
+            s += '[参数: 止损点为{0}%]'.format(self.accumulate_loss * 100)
+        return s
+
 class Stop_loss_by_price(Rule):
     def __init__(self, params):
         self.index = params.get('index', '000001.XSHG')
@@ -779,9 +825,6 @@ class Stop_loss_by_price(Rule):
         pass
 
     def __str__(self):
-        if self.is_day_stop_loss_by_price is False:
-            return '';
-
         return '大盘高低价比例止损器:[指数: %s] [参数: %s日内最高最低价: %s倍] [当前状态: %s]' % (
             self.index, self.day_count, self.multiple, self.is_day_stop_loss_by_price)
 
@@ -1469,7 +1512,14 @@ class Filter_gem(Filter_stock_list):
 
 class Filter_common(Filter_stock_list):
     def __init__(self, params):
-        self.filters = params.get('filters', ['st', 'high_limit', 'low_limit', 'pause'])
+        self.filters = params.get('filters', ['st', 'high_limit', 'low_limit', 'pause', 'new'])
+
+    # 过滤新股，返回上市超过n天的股票
+    def del_new_stock(self, context, security_list, n):
+        current_data = get_current_data()
+        security_list= [stock for stock in security_list if (context.current_dt.date() - get_security_info(stock).start_date).days>n]
+        # 返回结果
+        return security_list
 
     def filter(self, context, data, stock_list):
         current_data = get_current_data()
@@ -1487,6 +1537,9 @@ class Filter_common(Filter_stock_list):
                           or data[stock].close > data[stock].low_limit]
         if 'pause' in self.filters:
             stock_list = [stock for stock in stock_list if not current_data[stock].paused]
+
+        if 'new' in self.filters:
+            stock_list = self.del_new_stock(context, stock_list, 365)
         return stock_list
 
     def __str__(self):
