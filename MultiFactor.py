@@ -17,54 +17,53 @@ def pick_strategy(buy_count):
     g.strategy_memo = '首席质量因子'
 
     pick_config = [
-        [True, '', '多因子范围选取器', Pick_financial_data, {
-            'factors': [
-                # FD_Factor('valuation.circulating_market_cap', min=0, max=100)  # 流通市值0~100亿
-                FD_Factor('valuation.pe_ratio', min=0, max=200),  # 200 > pe > 0
-                FD_Factor('valuation.pb_ratio', min=0),  # pb_ratio > 0
-                FD_Factor('valuation.ps_ratio', max=2.5) # ps_ratio < 2.5
-            ]
-        }],
-        [True, '', '多因子过滤器', Filter_financial_data, {
-            'filters': [
-                # FD_Filter('valuation.market_cap',sort=SortType.desc, percent=80),
-                FD_Filter('valuation.pe_ratio',sort=SortType.asc, percent=40),
-                FD_Filter('valuation.pb_ratio',sort=SortType.asc, percent=40),
-            ]
-        }],
+        # [True, '', '多因子范围选取器', Pick_financial_data, {
+        #     'factors': [
+        #         # FD_Factor('valuation.circulating_market_cap', min=0, max=100)  # 流通市值0~100亿
+        #         FD_Factor('valuation.pe_ratio', min=0, max=200),  # 200 > pe > 0
+        #         FD_Factor('valuation.pb_ratio', min=0),  # pb_ratio > 0
+        #         FD_Factor('valuation.ps_ratio', max=2.5) # ps_ratio < 2.5
+        #     ]
+        # }],
+        # [True, '', '多因子过滤器', Filter_financial_data, {
+        #     'filters': [
+        #         # FD_Filter('valuation.market_cap',sort=SortType.desc, percent=80),
+        #         FD_Filter('valuation.pe_ratio',sort=SortType.asc, percent=40),
+        #         FD_Filter('valuation.pb_ratio',sort=SortType.asc, percent=40),
+        #     ]
+        # }],
         [True, '', '过滤创业板', Filter_gem, {}],
-        [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
-        [True, '', '权重排序', SortRules, {
-            'config': [
-                [True, '', '流通市值排序', Sort_financial_data, {
-                    'factor': 'valuation.circulating_market_cap',
-                    'sort': SortType.asc
-                    , 'weight': 50}],
-                [True, '', '首席质量因子排序', Sort_gross_profit, {
-                    'sort': SortType.desc,
-                    'weight': 100}],
-                [True, '20volumn', '20日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 20}],
-                [True, '60volumn', '60日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 60}],
-                [True, '120volumn', '120日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 120}],
-                [True, '180volumn', '180日成交量排序', Sort_volumn, {
-                    'sort': SortType.desc
-                    , 'weight': 10
-                    , 'day': 180}],
-            ]}
-        ],
+        # [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
+        # [True, '', '权重排序', SortRules, {
+        #     'config': [
+        #         [True, '', '流通市值排序', Sort_financial_data, {
+        #             'factor': 'valuation.circulating_market_cap',
+        #             'sort': SortType.asc
+        #             , 'weight': 50}],
+        #         [True, '', '首席质量因子排序', Sort_gross_profit, {
+        #             'sort': SortType.desc,
+        #             'weight': 100}],
+        #         [True, '20volumn', '20日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 20}],
+        #         [True, '60volumn', '60日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 60}],
+        #         [True, '120volumn', '120日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 120}],
+        #         [True, '180volumn', '180日成交量排序', Sort_volumn, {
+        #             'sort': SortType.desc
+        #             , 'weight': 10
+        #             , 'day': 180}],
+        #     ]}
+        # ],
         # [True, '', '低估价值选股', Underestimate_value_pick, {}],
         # [True, '', '布林线选股', Bolling_pick, {}],
         # [True, '', '股息率选股', Dividend_yield_pick, {}],
-        # [True, '', 'FFScore选股', FFScore_value_pick, {}],
         [True, '', '获取最终选股数', Filter_buy_count, {
             'buy_count': buy_count  # 最终入选股票数
         }],
@@ -114,7 +113,8 @@ def select_strategy(context):
                 }],
                 [True, '', '个股止损器', Stop_loss_win_for_single, {
                     'accumulate_loss': -0.1,
-                    'accumulate_win': 0.2
+                    # 'accumulate_win': 0.2,
+                    'dynamic_stop_win':True,
                 }],
             ]
         }],
@@ -753,11 +753,23 @@ class Stop_loss_win_for_single(Rule):
     def __init__(self, params):
         self.accumulate_loss = params.get('accumulate_loss', None)
         self.accumulate_win = params.get('accumulate_win', None)
+        self.dynamic_stop_win = params.get('dynamic_stop_win', False)
         pass
 
     def update_params(self, context, params):
         self.accumulate_loss = params.get('accumulate_loss', self.accumulate_loss)
         self.accumulate_win = params.get('accumulate_win', self.accumulate_win)
+        self.dynamic_stop_win = params.get('dynamic_stop_win', self.dynamic_stop_win)
+
+    def get_dynamic_win_stop(self, context, data, stock):
+        # position = context.portfolio.positions[stock];
+        # delta = context.current_dt - position.init_time
+
+        # hist1 = attribute_history(stock, delta + 1, '1d', 'close', df=True)
+        # high_price = hist1['close'].max();
+
+        pass
+
 
     # 计算股票累计收益率（从建仓至今）
     def security_accumulate_return(self, context, data, stock):
@@ -771,9 +783,13 @@ class Stop_loss_win_for_single(Rule):
     def handle_data(self, context, data):
         for stock in context.portfolio.positions.keys():
             accumulate_return = self.security_accumulate_return(context,data,stock);
-            if accumulate_return != None \
+            # 动态止盈
+            if self.dynamic_stop_win:
+                dynamic_stop_margin = self.get_dynamic_win_stop(context, data, stock)
+            # 静态止盈
+            elif accumulate_return != None \
             and ( (self.accumulate_loss !=None and accumulate_return < self.accumulate_loss) \
-            or (self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
+            or (self.dynamic_stop_win == False and self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
                     position = context.portfolio.long_positions[stock]
                     # 平仓，并且 is_normal=False, 需要重新调仓
                     self.log.warn('{0} 该股累计{1}超过{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), "涨幅" if accumulate_return > 0 else "跌幅", (self.accumulate_win if accumulate_return > 0 else self.accumulate_loss)*100))
@@ -781,7 +797,9 @@ class Stop_loss_win_for_single(Rule):
 
     def __str__(self):
         s =  '个股止损器:'
-        if self.accumulate_win != None:
+        if self.dynamic_stop_win:
+            s += '[动态止盈方案]'
+        elif self.accumulate_win != None:
             s += '[参数: 止盈点为{0}%]'.format(self.accumulate_win * 100)
         if self.accumulate_loss != None:
             s += '[参数: 止损点为{0}%]'.format(self.accumulate_loss * 100)
@@ -1131,213 +1149,6 @@ class Dividend_yield_pick(Filter_stock_list):
 
     def __str__(self):
         return '按股息率从大到小选股'
-
-# FFScore长期价值投资
-class FFScore_value_pick(Filter_stock_list):
-    def __init__(self, params):
-        pass
-
-    def filter(self, context, data, stock_list):
-        # 调仓
-        statsDate = context.current_dt.date()
-        # 取得待购列表
-        stock_list = self.fun_get_stock_list(context, statsDate, stock_list)
-
-        print show_rule_execute_result(self, stock_list)
-        return stock_list
-
-    def __str__(self):
-        s =  'FFScore长期价值投资:' 
-        s += '\n\t\t1. 盈利水平打分'
-        s += '\n\t\t2. 财务杠杆和流动性'
-        s += '\n\t\t3. 运营效率'
-        return s
-
-    def fun_get_stock_list(self, context, statsDate, stock_list):
-        
-        def __cal_FFScore(stock_list, FFScore, new_list):
-            for stock in stock_list:
-                if stock in new_list:
-                    if stock in FFScore:
-                        FFScore[stock] += 1
-                    else:
-                        FFScore[stock] = 1
-                elif stock not in FFScore:
-                    FFScore[stock] = 0
-            return FFScore
-
-        #2) 盈利水平打分
-        # 2.1 资产收益率（ROE）：收益率为正数时ROE=1，否则为0。
-        df = get_fundamentals(
-            query(indicator.code, indicator.roe),
-            date = statsDate - datetime.timedelta(1)
-        )
-        df = df[df.code.isin(stock_list)]
-        df = df.reset_index(drop = True)
-        df = df[df.roe > 0]
-        df = df.reset_index(drop=True)
-        list_roe = list(df['code'])
-
-        FFScore = {}
-        FFScore = __cal_FFScore(stock_list, FFScore, list_roe)
-        
-        #2.2 资产收益率变化（△ROA）：当期最新可得财务报告的ROA同比的变化。变化为正数时△ROA=1，否则为0。
-        df = get_fundamentals(
-            query(indicator.code, indicator.roa),
-            date = statsDate - datetime.timedelta(1)
-        )
-        # 此算法不严谨，先简单实现，看看大体效果
-        df2 = get_fundamentals(
-            query(indicator.code, indicator.roa),
-            date = statsDate - datetime.timedelta(365)
-        )
-        df = df[df.code.isin(stock_list)]
-        df = df.reset_index(drop = True)
-        df.index = list(df['code'])
-        df = df.drop(['code'], axis=1)
-        dict1 = df.to_dict()['roa']
-
-        df2 = df2[df2.code.isin(stock_list)]
-        df2 = df2.reset_index(drop = True)
-        df2.index = list(df2['code'])
-        df2 = df2.drop(['code'], axis=1)
-        dict2 = df2.to_dict()['roa']
-        
-        tmpList = []
-        for stock in dict1.keys():
-            if stock in dict2:
-                if dict1[stock] > dict2[stock]:
-                    tmpList.append(stock)
-        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
-
-        # 3)财务杠杆和流动性
-        # 3.1 杠杆变化（△LEVER）：杠杆通过非流动负债合计除以非流动资产合计计算，杠杆变化为当期最新可得财务报告的杠杆同比的变化。变化为负数时△LEVER=1，否则为0。
-        df = get_fundamentals(
-            query(balance.code, balance.total_non_current_assets, balance.total_non_current_liability),
-            date = statsDate - datetime.timedelta(1)
-        )
-        # 此算法不严谨，先简单实现，看看大体效果
-        df2 = get_fundamentals(
-            query(balance.code, balance.total_non_current_assets, balance.total_non_current_liability),
-            date = statsDate - datetime.timedelta(365)
-        )
-        
-        df3 = get_fundamentals(
-            query(balance.code, balance.total_non_current_assets, balance.total_non_current_liability),
-            date = statsDate - datetime.timedelta(730)
-        )
-
-        df['total_non_current_assets_before'] = df2['total_non_current_assets']
-        df = df.dropna()
-        df = df[df.code.isin(stock_list)]
-        df['LEVER'] = 2.0*df['total_non_current_liability'] / (df['total_non_current_assets'] + df['total_non_current_assets_before'])
-        df.index = list(df['code'])
-        df = df.drop(['code', 'total_non_current_assets', 'total_non_current_liability', 'total_non_current_assets_before'], axis=1)
-        dict1 = df.to_dict()['LEVER']
-
-        df2['total_non_current_assets_before'] = df3['total_non_current_assets']
-        df2 = df2.dropna()
-        df2 = df2[df2.code.isin(stock_list)]
-        df2['LEVER'] = 2.0*df2['total_non_current_liability'] / (df2['total_non_current_assets'] + df2['total_non_current_assets_before'])
-        df2.index = list(df2['code'])
-        df2 = df2.drop(['code', 'total_non_current_assets', 'total_non_current_liability', 'total_non_current_assets_before'], axis=1)
-        dict2 = df2.to_dict()['LEVER']
-
-        tmpList = []
-        for stock in dict1.keys():
-            if stock in dict2:
-                if dict1[stock] < dict2[stock]:
-                    tmpList.append(stock)
-        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
-        
-        # 4）运营效率
-        # 4.1 流动资产周转率变化（△CATURN）： 流动资产周转率变化为当期最新可得财务报告的资产周转率同比的变化。变化为正数时△CATURN =1，否则为0。
-        # 主营业务收入与流动资产的比例来反映流动资产的周转速度，来衡量企业在生产运营上对流动资产的利用效率。
-        df = get_fundamentals(
-            query(balance.code, balance.total_current_assets, income.total_operating_revenue, income.non_operating_revenue),
-            date = statsDate - datetime.timedelta(1)
-        )
-        # 此算法不严谨，先简单实现，看看大体效果
-        df2 = get_fundamentals(
-            query(balance.code, balance.total_current_assets, income.total_operating_revenue, income.non_operating_revenue),
-            date = statsDate - datetime.timedelta(365)
-        )
-
-        df3 = get_fundamentals(
-            query(balance.code, balance.total_current_assets, income.total_operating_revenue, income.non_operating_revenue),
-            date = statsDate - datetime.timedelta(730)
-        )
-
-        df['total_current_assets_before'] = df2['total_current_assets']
-        df = df.dropna()
-        df = df[df.code.isin(stock_list)]
-        df['CATURN'] = (df['total_operating_revenue'] - df['non_operating_revenue']) / (df['total_current_assets'] + df['total_current_assets_before'])
-        df.index = list(df['code'])
-        df = df.drop(['code', 'total_current_assets', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets_before'], axis=1)
-        dict1 = df.to_dict()['CATURN']
-
-        df2['total_current_assets_before'] = df3['total_current_assets']
-        df2 = df2.dropna()
-        df2 = df2[df2.code.isin(stock_list)]
-        df2['CATURN'] = (df2['total_operating_revenue'] - df2['non_operating_revenue']) / (df2['total_current_assets'] + df2['total_current_assets_before'])
-        df2.index = list(df2['code'])
-        df2 = df2.drop(['code', 'total_current_assets', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets_before'], axis=1)
-        dict2 = df2.to_dict()['CATURN']
-        
-        tmpList = []
-        for stock in dict1.keys():
-            if stock in dict2:
-                if dict1[stock] > dict2[stock]:
-                    tmpList.append(stock)
-        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
-
-        # 4.2 资产周转率变化（△TURN）： 资产周转率通过总资产周转率除以平均资产总值计算，资产周转率变化为当期最新可得财务报告的资产周转率同比的变化。变化为正数时△TURN =1，否则为0
-        df = get_fundamentals(
-            query(balance.code, income.total_operating_revenue, income.non_operating_revenue, balance.total_current_assets, balance.total_non_current_assets),
-            date = statsDate - datetime.timedelta(1)
-        )
-        df2 = get_fundamentals(
-            query(balance.code, income.total_operating_revenue, income.non_operating_revenue, balance.total_current_assets, balance.total_non_current_assets),
-            date = statsDate - datetime.timedelta(365)
-        )
-        df3 = get_fundamentals(
-            query(balance.code, income.total_operating_revenue, income.non_operating_revenue, balance.total_current_assets, balance.total_non_current_assets),
-            date = statsDate - datetime.timedelta(730)
-        )
-
-        df['total_assets'] = df['total_current_assets'] + df['total_non_current_assets']
-        df2['total_assets'] = df2['total_current_assets'] + df2['total_non_current_assets']
-        df3['total_assets'] = df3['total_current_assets'] + df3['total_non_current_assets']
-        df['total_assets_before'] = df2['total_assets']
-        df2['total_assets_before'] = df3['total_assets']
-        df = df.dropna()
-        df2 = df2.dropna()
-
-        df = df[df.code.isin(stock_list)]
-        df['TURN'] = (df['total_operating_revenue'] - df['non_operating_revenue']) / (df['total_assets'] + df['total_assets_before'])
-        df.index = list(df['code'])
-        df = df.drop(['code', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets', 'total_non_current_assets', 'total_assets', 'total_assets_before'], axis=1)
-        dict1 = df.to_dict()['TURN']
-
-        df2 = df2[df2.code.isin(stock_list)]
-        df2['TURN'] = (df2['total_operating_revenue'] - df2['non_operating_revenue']) / (df2['total_assets'] + df2['total_assets_before'])
-        df2.index = list(df2['code'])
-        df2 = df2.drop(['code', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets', 'total_non_current_assets', 'total_assets', 'total_assets_before'], axis=1)
-        dict2 = df2.to_dict()['TURN']
-
-        tmpList = []
-        for stock in dict1.keys():
-            if stock in dict2:
-                if dict1[stock] > dict2[stock]:
-                    tmpList.append(stock)
-        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
-
-        stock_list = []
-        for stock in FFScore.keys():
-            if FFScore[stock] == 5:
-                stock_list.append(stock)
-
-        return stock_list
 
 # 迈克尔•普莱斯低估价值选股策略
 class Underestimate_value_pick(Filter_stock_list):
@@ -1764,6 +1575,215 @@ class Sort_gross_profit(SortBase):
     def __str__(self):
         return '首席质量因子排序器:' + '[权重: %s ] [排序: %s ] %s' % (self.weight, self._sort_type_str(), self.memo)
     
+
+# FFScore长期价值投资打分
+class FFScore_value(SortBase):
+    def __init__(self, params):
+        pass
+
+    def sort(self, context, data, stock_list):
+        # 调仓
+        statsDate = context.current_dt.date()
+        # 取得待购列表
+        stock_list = self.fun_get_stock_list(context, statsDate, stock_list)
+
+        print show_rule_execute_result(self, stock_list)
+        return stock_list
+
+    def __str__(self):
+        s =  'FFScore长期价值投资打分:' 
+        s += '\n\t\t1. 盈利水平打分'
+        s += '\n\t\t2. 财务杠杆和流动性'
+        s += '\n\t\t3. 运营效率'
+        return s
+
+    def fun_get_stock_list(self, context, statsDate, stock_list):
+        
+        def __cal_FFScore(stock_list, FFScore, new_list):
+            for stock in stock_list:
+                if stock in new_list:
+                    if stock in FFScore:
+                        FFScore[stock] += 1
+                    else:
+                        FFScore[stock] = 1
+                elif stock not in FFScore:
+                    FFScore[stock] = 0
+            return FFScore
+
+        #2) 盈利水平打分
+        # 2.1 资产收益率（ROE）：收益率为正数时ROE=1，否则为0。
+        df = get_fundamentals(
+            query(indicator.code, indicator.roe),
+            date = statsDate - datetime.timedelta(1)
+        )
+        df = df[df.code.isin(stock_list)]
+        df = df.reset_index(drop = True)
+        df = df[df.roe > 0]
+        df = df.reset_index(drop=True)
+        list_roe = list(df['code'])
+
+        FFScore = {}
+        FFScore = __cal_FFScore(stock_list, FFScore, list_roe)
+        
+        #2.2 资产收益率变化（△ROA）：当期最新可得财务报告的ROA同比的变化。变化为正数时△ROA=1，否则为0。
+        df = get_fundamentals(
+            query(indicator.code, indicator.roa),
+            date = statsDate - datetime.timedelta(1)
+        )
+        # 此算法不严谨，先简单实现，看看大体效果
+        df2 = get_fundamentals(
+            query(indicator.code, indicator.roa),
+            date = statsDate - datetime.timedelta(365)
+        )
+        df = df[df.code.isin(stock_list)]
+        df = df.reset_index(drop = True)
+        df.index = list(df['code'])
+        df = df.drop(['code'], axis=1)
+        dict1 = df.to_dict()['roa']
+
+        df2 = df2[df2.code.isin(stock_list)]
+        df2 = df2.reset_index(drop = True)
+        df2.index = list(df2['code'])
+        df2 = df2.drop(['code'], axis=1)
+        dict2 = df2.to_dict()['roa']
+        
+        tmpList = []
+        for stock in dict1.keys():
+            if stock in dict2:
+                if dict1[stock] > dict2[stock]:
+                    tmpList.append(stock)
+        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
+
+        # 3)财务杠杆和流动性
+        # 3.1 杠杆变化（△LEVER）：杠杆通过非流动负债合计除以非流动资产合计计算，杠杆变化为当期最新可得财务报告的杠杆同比的变化。变化为负数时△LEVER=1，否则为0。
+        df = get_fundamentals(
+            query(balance.code, balance.total_non_current_assets, balance.total_non_current_liability),
+            date = statsDate - datetime.timedelta(1)
+        )
+        # 此算法不严谨，先简单实现，看看大体效果
+        df2 = get_fundamentals(
+            query(balance.code, balance.total_non_current_assets, balance.total_non_current_liability),
+            date = statsDate - datetime.timedelta(365)
+        )
+        
+        df3 = get_fundamentals(
+            query(balance.code, balance.total_non_current_assets, balance.total_non_current_liability),
+            date = statsDate - datetime.timedelta(730)
+        )
+
+        df['total_non_current_assets_before'] = df2['total_non_current_assets']
+        df = df.dropna()
+        df = df[df.code.isin(stock_list)]
+        df['LEVER'] = 2.0*df['total_non_current_liability'] / (df['total_non_current_assets'] + df['total_non_current_assets_before'])
+        df.index = list(df['code'])
+        df = df.drop(['code', 'total_non_current_assets', 'total_non_current_liability', 'total_non_current_assets_before'], axis=1)
+        dict1 = df.to_dict()['LEVER']
+
+        df2['total_non_current_assets_before'] = df3['total_non_current_assets']
+        df2 = df2.dropna()
+        df2 = df2[df2.code.isin(stock_list)]
+        df2['LEVER'] = 2.0*df2['total_non_current_liability'] / (df2['total_non_current_assets'] + df2['total_non_current_assets_before'])
+        df2.index = list(df2['code'])
+        df2 = df2.drop(['code', 'total_non_current_assets', 'total_non_current_liability', 'total_non_current_assets_before'], axis=1)
+        dict2 = df2.to_dict()['LEVER']
+
+        tmpList = []
+        for stock in dict1.keys():
+            if stock in dict2:
+                if dict1[stock] < dict2[stock]:
+                    tmpList.append(stock)
+        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
+        
+        # 4）运营效率
+        # 4.1 流动资产周转率变化（△CATURN）： 流动资产周转率变化为当期最新可得财务报告的资产周转率同比的变化。变化为正数时△CATURN =1，否则为0。
+        # 主营业务收入与流动资产的比例来反映流动资产的周转速度，来衡量企业在生产运营上对流动资产的利用效率。
+        df = get_fundamentals(
+            query(balance.code, balance.total_current_assets, income.total_operating_revenue, income.non_operating_revenue),
+            date = statsDate - datetime.timedelta(1)
+        )
+        # 此算法不严谨，先简单实现，看看大体效果
+        df2 = get_fundamentals(
+            query(balance.code, balance.total_current_assets, income.total_operating_revenue, income.non_operating_revenue),
+            date = statsDate - datetime.timedelta(365)
+        )
+
+        df3 = get_fundamentals(
+            query(balance.code, balance.total_current_assets, income.total_operating_revenue, income.non_operating_revenue),
+            date = statsDate - datetime.timedelta(730)
+        )
+
+        df['total_current_assets_before'] = df2['total_current_assets']
+        df = df.dropna()
+        df = df[df.code.isin(stock_list)]
+        df['CATURN'] = (df['total_operating_revenue'] - df['non_operating_revenue']) / (df['total_current_assets'] + df['total_current_assets_before'])
+        df.index = list(df['code'])
+        df = df.drop(['code', 'total_current_assets', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets_before'], axis=1)
+        dict1 = df.to_dict()['CATURN']
+
+        df2['total_current_assets_before'] = df3['total_current_assets']
+        df2 = df2.dropna()
+        df2 = df2[df2.code.isin(stock_list)]
+        df2['CATURN'] = (df2['total_operating_revenue'] - df2['non_operating_revenue']) / (df2['total_current_assets'] + df2['total_current_assets_before'])
+        df2.index = list(df2['code'])
+        df2 = df2.drop(['code', 'total_current_assets', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets_before'], axis=1)
+        dict2 = df2.to_dict()['CATURN']
+        
+        tmpList = []
+        for stock in dict1.keys():
+            if stock in dict2:
+                if dict1[stock] > dict2[stock]:
+                    tmpList.append(stock)
+        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
+
+        # 4.2 资产周转率变化（△TURN）： 资产周转率通过总资产周转率除以平均资产总值计算，资产周转率变化为当期最新可得财务报告的资产周转率同比的变化。变化为正数时△TURN =1，否则为0
+        df = get_fundamentals(
+            query(balance.code, income.total_operating_revenue, income.non_operating_revenue, balance.total_current_assets, balance.total_non_current_assets),
+            date = statsDate - datetime.timedelta(1)
+        )
+        df2 = get_fundamentals(
+            query(balance.code, income.total_operating_revenue, income.non_operating_revenue, balance.total_current_assets, balance.total_non_current_assets),
+            date = statsDate - datetime.timedelta(365)
+        )
+        df3 = get_fundamentals(
+            query(balance.code, income.total_operating_revenue, income.non_operating_revenue, balance.total_current_assets, balance.total_non_current_assets),
+            date = statsDate - datetime.timedelta(730)
+        )
+
+        df['total_assets'] = df['total_current_assets'] + df['total_non_current_assets']
+        df2['total_assets'] = df2['total_current_assets'] + df2['total_non_current_assets']
+        df3['total_assets'] = df3['total_current_assets'] + df3['total_non_current_assets']
+        df['total_assets_before'] = df2['total_assets']
+        df2['total_assets_before'] = df3['total_assets']
+        df = df.dropna()
+        df2 = df2.dropna()
+
+        df = df[df.code.isin(stock_list)]
+        df['TURN'] = (df['total_operating_revenue'] - df['non_operating_revenue']) / (df['total_assets'] + df['total_assets_before'])
+        df.index = list(df['code'])
+        df = df.drop(['code', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets', 'total_non_current_assets', 'total_assets', 'total_assets_before'], axis=1)
+        dict1 = df.to_dict()['TURN']
+
+        df2 = df2[df2.code.isin(stock_list)]
+        df2['TURN'] = (df2['total_operating_revenue'] - df2['non_operating_revenue']) / (df2['total_assets'] + df2['total_assets_before'])
+        df2.index = list(df2['code'])
+        df2 = df2.drop(['code', 'total_operating_revenue', 'non_operating_revenue', 'total_current_assets', 'total_non_current_assets', 'total_assets', 'total_assets_before'], axis=1)
+        dict2 = df2.to_dict()['TURN']
+
+        tmpList = []
+        for stock in dict1.keys():
+            if stock in dict2:
+                if dict1[stock] > dict2[stock]:
+                    tmpList.append(stock)
+        FFScore = __cal_FFScore(stock_list, FFScore, tmpList)
+
+        # stock_list = []
+        # for stock in FFScore.keys():
+        #     if FFScore[stock] == 5:
+        #         stock_list.append(stock)
+
+        FFScore = sorted(FFScore.items(), key=lambda x:x[1], reverse=not self.is_asc)
+        return [stock for stock, volumn in FFScore]
+
 
 # '''------------------截取欲购股票数-----------------'''
 class Filter_buy_count(Filter_stock_list):
