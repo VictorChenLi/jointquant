@@ -17,50 +17,50 @@ def pick_strategy(buy_count):
     g.strategy_memo = '首席质量因子'
 
     pick_config = [
-        # [True, '', '多因子范围选取器', Pick_financial_data, {
-        #     'factors': [
-        #         # FD_Factor('valuation.circulating_market_cap', min=0, max=100)  # 流通市值0~100亿
-        #         FD_Factor('valuation.pe_ratio', min=0, max=200),  # 200 > pe > 0
-        #         FD_Factor('valuation.pb_ratio', min=0),  # pb_ratio > 0
-        #         FD_Factor('valuation.ps_ratio', max=2.5) # ps_ratio < 2.5
-        #     ]
-        # }],
-        # [True, '', '多因子过滤器', Filter_financial_data, {
-        #     'filters': [
-        #         # FD_Filter('valuation.market_cap',sort=SortType.desc, percent=80),
-        #         FD_Filter('valuation.pe_ratio',sort=SortType.asc, percent=40),
-        #         FD_Filter('valuation.pb_ratio',sort=SortType.asc, percent=40),
-        #     ]
-        # }],
+        [True, '', '多因子范围选取器', Pick_financial_data, {
+            'factors': [
+                # FD_Factor('valuation.circulating_market_cap', min=0, max=100)  # 流通市值0~100亿
+                FD_Factor('valuation.pe_ratio', min=0, max=200),  # 200 > pe > 0
+                FD_Factor('valuation.pb_ratio', min=0),  # pb_ratio > 0
+                FD_Factor('valuation.ps_ratio', max=2.5) # ps_ratio < 2.5
+            ]
+        }],
+        [True, '', '多因子过滤器', Filter_financial_data, {
+            'filters': [
+                # FD_Filter('valuation.market_cap',sort=SortType.desc, percent=80),
+                FD_Filter('valuation.pe_ratio',sort=SortType.asc, percent=40),
+                FD_Filter('valuation.pb_ratio',sort=SortType.asc, percent=40),
+            ]
+        }],
         [True, '', '过滤创业板', Filter_gem, {}],
-        # [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
-        # [True, '', '权重排序', SortRules, {
-        #     'config': [
-        #         [True, '', '流通市值排序', Sort_financial_data, {
-        #             'factor': 'valuation.circulating_market_cap',
-        #             'sort': SortType.asc
-        #             , 'weight': 50}],
-        #         [True, '', '首席质量因子排序', Sort_gross_profit, {
-        #             'sort': SortType.desc,
-        #             'weight': 100}],
-        #         [True, '20volumn', '20日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 20}],
-        #         [True, '60volumn', '60日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 60}],
-        #         [True, '120volumn', '120日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 120}],
-        #         [True, '180volumn', '180日成交量排序', Sort_volumn, {
-        #             'sort': SortType.desc
-        #             , 'weight': 10
-        #             , 'day': 180}],
-        #     ]}
-        # ],
+        [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
+        [True, '', '权重排序', SortRules, {
+            'config': [
+                [True, '', '流通市值排序', Sort_financial_data, {
+                    'factor': 'valuation.circulating_market_cap',
+                    'sort': SortType.asc
+                    , 'weight': 50}],
+                [True, '', '首席质量因子排序', Sort_gross_profit, {
+                    'sort': SortType.desc,
+                    'weight': 100}],
+                [True, '20volumn', '20日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 20}],
+                [True, '60volumn', '60日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 60}],
+                [True, '120volumn', '120日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 120}],
+                [True, '180volumn', '180日成交量排序', Sort_volumn, {
+                    'sort': SortType.desc
+                    , 'weight': 10
+                    , 'day': 180}],
+            ]}
+        ],
         # [True, '', '低估价值选股', Underestimate_value_pick, {}],
         # [True, '', '布林线选股', Bolling_pick, {}],
         # [True, '', '股息率选股', Dividend_yield_pick, {}],
@@ -107,14 +107,19 @@ def select_strategy(context):
                     'day_count': 160,  # 可选 取day_count天内的最高价，最低价。默认160
                     'multiple': 2.2  # 可选 最高价为最低价的multiple倍时，触 发清仓
                 }],
-                [True, '', '多指数20日涨幅止损器', Mul_index_stop_loss, {
-                    'indexs': [index2, index8],
-                    'min_rate': 0.005
-                }],
+                # [True, '', '多指数20日涨幅止损器', Mul_index_stop_loss, {
+                #     'indexs': [index2, index8],
+                #     'min_rate': 0.005
+                # }],
                 [True, '', '个股止损器', Stop_loss_win_for_single, {
-                    'accumulate_loss': -0.1,
+                    # 止损止盈后是否保留当前的持股状态
+                    'keep_position': False,
+                    # 动态止盈和accumulate_win不能一起使用
+                    'accumulate_loss':  -0.05,
                     # 'accumulate_win': 0.2,
-                    'dynamic_stop_win':True,
+                    # 'dynamic_stop_win': True,
+                    # 'dynamic_threshod': 0.05,
+                    # 'dynamic_sense': 0.1 # 0 < sense,越接近0越灵敏,止盈出局越快
                 }],
             ]
         }],
@@ -754,31 +759,45 @@ class Stop_loss_win_for_single(Rule):
         self.accumulate_loss = params.get('accumulate_loss', None)
         self.accumulate_win = params.get('accumulate_win', None)
         self.dynamic_stop_win = params.get('dynamic_stop_win', False)
+        self.dynamic_threshod = params.get('dynamic_threshod', 0.1)
+        self.dynamic_sense = params.get('dynamic_sense', 0.2)
+        self.keep_position = params.get('keep_position', False)
         pass
 
     def update_params(self, context, params):
         self.accumulate_loss = params.get('accumulate_loss', self.accumulate_loss)
         self.accumulate_win = params.get('accumulate_win', self.accumulate_win)
         self.dynamic_stop_win = params.get('dynamic_stop_win', self.dynamic_stop_win)
+        self.dynamic_threshod = params.get('dynamic_threshod', self.dynamic_threshod)
+        self.dynamic_sense = params.get('dynamic_sense', self.dynamic_sense)
+        self.keep_position = params.get('keep_position', self.keep_position)
 
-    def get_dynamic_win_stop(self, context, data, stock):
-        # position = context.portfolio.positions[stock];
-        # delta = context.current_dt - position.init_time
-
-        # hist1 = attribute_history(stock, delta + 1, '1d', 'close', df=True)
-        # high_price = hist1['close'].max();
-
-        pass
-
+    def caculate_return(self, context, price, stock):
+        cost = context.portfolio.positions[stock].avg_cost
+        if cost != 0:
+            return (price-cost)/cost
+        else:
+            return None
 
     # 计算股票累计收益率（从建仓至今）
     def security_accumulate_return(self, context, data, stock):
         current_price = data[stock].price
-        cost = context.portfolio.positions[stock].avg_cost
-        if cost != 0:
-            return (current_price-cost)/cost
+        return self.caculate_return(context, current_price, stock)
+
+    def get_dynamic_win_stop(self, context, data, stock):
+        position = context.portfolio.positions[stock];
+        delta = context.current_dt - position.init_time
+
+        # 得到过去这些时间内每分钟最高的价格
+        hist1 = get_price(stock, start_date=position.init_time, end_date=context.current_dt, frequency='1m', fields=["avg"], skip_paused=True)
+        high_price = hist1['avg'].max();
+        high_margin_return = self.caculate_return(context, high_price, stock)
+
+        if high_margin_return != None and self.dynamic_threshod < high_margin_return:
+            dynamic_stop_margin = pow(high_margin_return, self.dynamic_sense) * high_margin_return
+            return dynamic_stop_margin
         else:
-            return None
+            return 0
 
     def handle_data(self, context, data):
         for stock in context.portfolio.positions.keys():
@@ -786,19 +805,25 @@ class Stop_loss_win_for_single(Rule):
             # 动态止盈
             if self.dynamic_stop_win:
                 dynamic_stop_margin = self.get_dynamic_win_stop(context, data, stock)
-            # 静态止盈
+                if accumulate_return > 0 and accumulate_return < dynamic_stop_margin:
+                    position = context.portfolio.long_positions[stock]
+                    # 平仓，并且 is_normal=False, 需要重新调仓
+                    self.log.warn('{0} 该股累计涨幅超过动态止盈点{1}%, 目前为{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), dynamic_stop_margin*100, accumulate_return*100))
+                    self.g.close_position(self, position, self.keep_position)
+
+            # 静态止损止盈
             elif accumulate_return != None \
             and ( (self.accumulate_loss !=None and accumulate_return < self.accumulate_loss) \
             or (self.dynamic_stop_win == False and self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
                     position = context.portfolio.long_positions[stock]
                     # 平仓，并且 is_normal=False, 需要重新调仓
                     self.log.warn('{0} 该股累计{1}超过{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), "涨幅" if accumulate_return > 0 else "跌幅", (self.accumulate_win if accumulate_return > 0 else self.accumulate_loss)*100))
-                    self.g.close_position(self, position, False)
+                    self.g.close_position(self, position, self.keep_position)
 
     def __str__(self):
         s =  '个股止损器:'
         if self.dynamic_stop_win:
-            s += '[动态止盈方案]'
+            s += '[动态止盈方案:启动阈值:{0}%, 灵敏度:{1}]'.format(self.dynamic_threshod*100, self.dynamic_sense)
         elif self.accumulate_win != None:
             s += '[参数: 止盈点为{0}%]'.format(self.accumulate_win * 100)
         if self.accumulate_loss != None:
@@ -1591,7 +1616,7 @@ class FFScore_value(SortBase):
         return stock_list
 
     def __str__(self):
-        s =  'FFScore长期价值投资打分:' 
+        s =  '[权重: {0} ] [排序: {1}} ] {2}'.format(self.weight, self._sort_type_str(), self.memo)
         s += '\n\t\t1. 盈利水平打分'
         s += '\n\t\t2. 财务杠杆和流动性'
         s += '\n\t\t3. 运营效率'

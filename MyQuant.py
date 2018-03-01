@@ -93,7 +93,11 @@ class Gross_Profitability_lib():
             # 选取股票
             prefer_stock_list = context.prefer_stock_list
             bad_stock_list = context.bad_stock_list
-            GP_stock_list = self.fun_get_stock_list(context, 5, statsDate)
+            # 大盘止损
+            if g.quantlib.fun_dp_stop_loss():
+                GP_stock_list = []
+            else:
+                GP_stock_list = self.fun_get_stock_list(context, 5, statsDate)
             stock_list = list(set(prefer_stock_list + GP_stock_list) - set(bad_stock_list))
             # 分配仓位
             position_ratio = g.quantlib.fun_assetAllocationSystem(stock_list, statsDate)
@@ -324,9 +328,75 @@ class quantlib():
         else:
             return context[var_name]
 
+    def get_close_price(self, security, n, unit='1d'):
+        '''
+        获取前n个单位时间当时的收盘价
+        为防止取不到收盘价，试3遍
+        :param security: 
+        :param n: 
+        :param unit: '1d'/'1m'
+        :return: float
+        '''
+        cur_price = np.nan
+        for i in range(3):
+            cur_price = attribute_history(security, n, unit, 'close', True)['close'][0]
+            if not math.isnan(cur_price):
+                break
+        return cur_price
+
+    def get_growth_rate(self, security, n=20):
+        '''
+        获取股票n日以来涨幅，根据当前价(前1分钟的close）计算
+        n 默认20日  
+        :param security: 
+        :param n: 
+        :return: float
+        '''
+        lc = self.get_close_price(security, n)
+        c = self.get_close_price(security, 1, '1m')
+
+        if not isnan(lc) and not isnan(c) and lc != 0:
+            return (c - lc) / lc
+        else:
+            log.error("数据非法, security: %s, %d日收盘价: %f, 当前价: %f" % (security, n, lc, c))
+            return 0
+
+    def fun_mul_index_stop_loss(self):
+        indexs = ['000016.XSHG', '399333.XSHE']
+        r = []
+        for index in indexs:
+            gr_index = self.get_growth_rate(index)
+            # self.log.info('%s %d日涨幅  %.2f%%' % (show_stock(index), self._n, gr_index * 100))
+            r.append(gr_index > 0.005)
+        if sum(r) == 0:
+            log.warn('不符合持仓条件，清仓')
+            return True
+
+        return False
+
+    def fun_dp_stop_loss_by_price(self):
+        index = '000001.XSHG'
+        day_count = 160
+        multiple = 2.2
+        h = attribute_history(index, day_count, unit='1d', fields=('close', 'high', 'low'), skip_paused=True)
+        low_price = h.low.min()
+        high_price = h.high.max()
+        if high_price > multiple * low_price and h['close'][-1] < h['close'][-4] * 1 and h['close'][-1] > h['close'][-100]:
+            # 当日第一次输出日志
+            log.info("==> 大盘止损，%s指数前%s日内最高价超过最低价%s倍, 最高价: %f, 最低价: %f" % (index, day_count, multiple, high_price, low_price))
+            return True
+        return False
+
+    def fun_dp_stop_loss(self):
+        return self.fun_mul_index_stop_loss() or self.fun_dp_stop_loss_by_price()
+
     def fun_check_price(self, context, algo_name, stock_list, position_price, stop_loss_delt, stop_win_delt):
         flag = False
+
         if stock_list:
+            if self.fun_dp_stop_loss():
+                return True, position_price
+
             h = history(1, '1d', 'close', stock_list, df=False)
             for stock in stock_list:
                 curPrice = h[stock][0]
