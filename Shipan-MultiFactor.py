@@ -80,7 +80,8 @@ def white_list():
 # ==================================策略配置==============================================
 def select_strategy(context):
     buy_count = 5
-    adjust_days = 30
+    adjust_days = 7
+
     # **** 这里定义log输出的类类型,重要，一定要写。假如有需要自定义log，可更改这个变量
     g.log_type = Rule_loger
     # 判断是运行回测还是运行模拟
@@ -797,7 +798,7 @@ class Stop_loss_win_for_single(Rule):
                     self.g.close_position(self, position, self.keep_position)
 
             # 静态止损止盈
-            elif accumulate_return != None \
+            if accumulate_return != None \
             and ( (self.accumulate_loss !=None and accumulate_return < self.accumulate_loss) \
             or (self.dynamic_stop_win == False and self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
                     position = context.portfolio.long_positions[stock]

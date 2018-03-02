@@ -812,7 +812,7 @@ class Stop_loss_win_for_single(Rule):
                     self.g.close_position(self, position, self.keep_position)
 
             # 静态止损止盈
-            elif accumulate_return != None \
+            if accumulate_return != None \
             and ( (self.accumulate_loss !=None and accumulate_return < self.accumulate_loss) \
             or (self.dynamic_stop_win == False and self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
                     position = context.portfolio.long_positions[stock]
@@ -823,7 +823,7 @@ class Stop_loss_win_for_single(Rule):
     def __str__(self):
         s =  '个股止损器:'
         if self.dynamic_stop_win:
-            s += '[动态止盈方案:启动阈值:{0}%, 灵敏度:{1}]'.format(self.dynamic_threshod*100, self.dynamic_sense)
+            s += '[动态止盈方案:启动阈值:{0}%, 灵敏度:{1}, 保持持仓:{2}]'.format(self.dynamic_threshod*100, self.dynamic_sense, self.keep_position)
         elif self.accumulate_win != None:
             s += '[参数: 止盈点为{0}%]'.format(self.accumulate_win * 100)
         if self.accumulate_loss != None:
@@ -1603,9 +1603,6 @@ class Sort_gross_profit(SortBase):
 
 # FFScore长期价值投资打分
 class FFScore_value(SortBase):
-    def __init__(self, params):
-        pass
-
     def sort(self, context, data, stock_list):
         # 调仓
         statsDate = context.current_dt.date()
@@ -1616,7 +1613,7 @@ class FFScore_value(SortBase):
         return stock_list
 
     def __str__(self):
-        s =  '[权重: {0} ] [排序: {1}} ] {2}'.format(self.weight, self._sort_type_str(), self.memo)
+        s =  '[权重: {0} ] [排序: {1} ] {2}'.format(self.weight, self._sort_type_str(), self.memo)
         s += '\n\t\t1. 盈利水平打分'
         s += '\n\t\t2. 财务杠杆和流动性'
         s += '\n\t\t3. 运营效率'
