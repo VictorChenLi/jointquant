@@ -107,10 +107,10 @@ def select_strategy(context):
                     'day_count': 160,  # 可选 取day_count天内的最高价，最低价。默认160
                     'multiple': 2.2  # 可选 最高价为最低价的multiple倍时，触 发清仓
                 }],
-                # [True, '', '多指数20日涨幅止损器', Mul_index_stop_loss, {
-                #     'indexs': [index2, index8],
-                #     'min_rate': 0.005
-                # }],
+                [True, '', '多指数20日涨幅止损器', Mul_index_stop_loss, {
+                    'indexs': [index2, index8],
+                    'min_rate': 0.005
+                }],
                 [True, '', '个股止损器', Stop_loss_win_for_single, {
                     # 止损止盈后是否保留当前的持股状态
                     'keep_position': False,
@@ -210,7 +210,7 @@ def handle_data(context, data):
 
 # 开盘
 def before_trading_start(context):
-    log.info("==========================================================================")
+    log.info("=================================开盘=========================================")
     g.main.g.context = context
     g.main.before_trading_start(context)
 
@@ -961,7 +961,7 @@ class Pick_stocks(Group_rules):
             tl = self.g.buy_stocks[0:5]
         else:
             tl = self.g.buy_stocks[:]
-        self.log.info('选股:\n' + join_list(["[%s]" % (show_stock(x)) for x in tl], ' ', 10))
+        self.log.info('\n' + join_list(["[%s]" % (show_stock(x)) for x in tl], ' ', 10))
         self.has_run = True
 
     def before_trading_start(self, context):
@@ -1923,11 +1923,11 @@ class Op_stocks_record(Adjust_expand):
 
     def on_buy_stock(self, stock, order, new_pindex=0):
         self.position_has_change = True
-        self.op_buy_stocks.append([stock, order.filled])
+        self.op_buy_stocks.append([stock, order])
 
     def on_sell_stock(self, position, order, is_normal, new_pindex=0):
         self.position_has_change = True
-        self.op_sell_stocks.append([position.security, -order.filled])
+        self.op_sell_stocks.append([position.security, order])
 
     def after_adjust_end(self, context, data):
         self.op_buy_stocks = self.merge_op_list(self.op_buy_stocks)
@@ -1954,14 +1954,14 @@ class Show_postion_adjust(Op_stocks_record):
                 tl = self.g.buy_stocks[0:5]
             else:
                 tl = self.g.buy_stocks[:]
-            self.log.info('选股:\n' + join_list(["[%s]" % (show_stock(x)) for x in tl], ' ', 10))
+            self.log.info('\n' + join_list(["[%s]" % (show_stock(x)) for x in tl], ' ', 10))
         # 显示买卖日志
         if len(self.op_sell_stocks) > 0:
             self.log.info(
-                '\n' + join_list(["卖出 %s : %d" % (show_stock(x[0]), x[1]) for x in self.op_sell_stocks], '\n', 1))
+                '\n' + join_list(["卖出 %s : 数量:%d, 时间:%s, 卖出价:%s " % (show_stock(x[0]), x[1].filled, x[1].add_time, x[1].price) for x in self.op_sell_stocks], '\n', 1))
         if len(self.op_buy_stocks) > 0:
             self.log.info(
-                '\n' + join_list(["买入 %s : %d" % (show_stock(x[0]), x[1]) for x in self.op_buy_stocks], '\n', 1))
+                '\n' + join_list(["买入 %s : 数量:%d, 时间:%s, 买入价:%s" % (show_stock(x[0]), x[1].filled, x[1].add_time, x[1].price) for x in self.op_buy_stocks], '\n', 1))
         # 显示完就清除
         self.op_buy_stocks = []
         self.op_sell_stocks = []
@@ -2036,11 +2036,11 @@ class Show_position(Rule):
         self.op_buy_stocks = []
 
     def on_sell_stock(self, position, order, is_normal, new_pindex=0):
-        self.op_sell_stocks.append([position.security, order.filled])
+        self.op_sell_stocks.append([position.security, order])
         pass
 
     def on_buy_stock(self, stock, order, new_pindex=0):
-        self.op_buy_stocks.append([stock, order.filled])
+        self.op_buy_stocks.append([stock, order])
         pass
 
     # # 调仓后调用用
