@@ -889,20 +889,22 @@ class Mul_index_stop_loss(Rule):
     def handle_data(self, context, data):
         self.is_to_return = False
         r = []
+        msg = ""
         for index in self._indexs:
             gr_index = get_growth_rate(index, self._n)
-            self.log.info('%s %d日涨幅  %.2f%%' % (show_stock(index), self._n, gr_index * 100))
+            msg += '%s %d日涨幅  %.2f%%\n' % (show_stock(index), self._n, gr_index * 100)
             r.append(gr_index > self._min_rate)
         if sum(r) == 0:
-            self.log.warn('不符合持仓条件，清仓')
+            self.log.warn(msg)
+            self.log.warn('多指数%d日涨幅均小于%.2f%%, 不符合持仓条件，清仓')
             self.g.clear_position(self, context, self.g.op_pindexs)
             self.is_to_return = True
 
     def after_trading_end(self, context):
         Rule.after_trading_end(self, context)
-        for index in self._indexs:
-            gr_index = get_growth_rate(index, self._n - 1)
-            self.log.info('%s %d日涨幅  %.2f%% ' % (show_stock(index), self._n - 1, gr_index * 100))
+        # for index in self._indexs:
+        #     gr_index = get_growth_rate(index, self._n - 1)
+        #     self.log.info('%s %d日涨幅  %.2f%% ' % (show_stock(index), self._n - 1, gr_index * 100))
 
     def __str__(self):
         return '多指数20日涨幅损器[指数:%s] [涨幅:%.2f%%]' % (str(self._indexs), self._min_rate * 100)
