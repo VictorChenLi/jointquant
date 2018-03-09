@@ -61,9 +61,6 @@ def pick_strategy(buy_count):
                     , 'day': 180}],
             ]}
         ],
-        # [True, '', '低估价值选股', Underestimate_value_pick, {}],
-        # [True, '', '布林线选股', Bolling_pick, {}],
-        # [True, '', '股息率选股', Dividend_yield_pick, {}],
         [True, '', '获取最终选股数', Filter_buy_count, {
             'buy_count': buy_count  # 最终入选股票数
         }],
@@ -284,7 +281,7 @@ class Rule_loger(object):
     def error(self, msg, *args, **kwargs):
         log.error(self._owner_msg + msg, *args, **kwargs)
 
-
+# 全局变量，使用方法: self.g.xxx
 class Global_variable(object):
     context = None
     _owner = None
@@ -359,7 +356,7 @@ class Global_variable(object):
         # 对传入的子仓集合进行遍历清仓
         for pindex in pindexs:
             if context.portfolio.long_positions:
-                sender.log.info(("[%d]==> 清仓，卖出所有股票") % (pindex))
+                sender.log.info(("仓位[%d]==> 清仓，卖出所有股票") % (pindex))
                 for stock in context.portfolio.long_positions.keys():
                     position = context.portfolio.long_positions[stock]
                     self.close_position(sender, position, False, pindex)
@@ -807,7 +804,7 @@ class Stop_loss_win_for_single(Rule):
                 dynamic_stop_margin = self.get_dynamic_win_stop(context, data, stock)
                 if accumulate_return > 0 and accumulate_return < dynamic_stop_margin:
                     position = context.portfolio.long_positions[stock]
-                    # 平仓，并且 is_normal=False, 需要重新调仓
+                    # 平仓
                     self.log.warn('{0} 该股累计涨幅超过动态止盈点{1}%, 目前为{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), dynamic_stop_margin*100, accumulate_return*100))
                     self.g.close_position(self, position, self.keep_position)
 
@@ -816,7 +813,7 @@ class Stop_loss_win_for_single(Rule):
             and ( (self.accumulate_loss !=None and accumulate_return < self.accumulate_loss) \
             or (self.dynamic_stop_win == False and self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
                     position = context.portfolio.long_positions[stock]
-                    # 平仓，并且 is_normal=False, 需要重新调仓
+                    # 平仓
                     self.log.warn('{0} 该股累计{1}超过{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), "涨幅" if accumulate_return > 0 else "跌幅", (self.accumulate_win if accumulate_return > 0 else self.accumulate_loss)*100))
                     self.g.close_position(self, position, self.keep_position)
 
