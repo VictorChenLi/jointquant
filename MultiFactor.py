@@ -1,5 +1,11 @@
 import numpy as np
 import pandas as pd
+import math
+from sklearn.svm import SVR  
+from sklearn.model_selection import GridSearchCV  
+from sklearn.model_selection import learning_curve
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
 import talib
 from prettytable import PrettyTable
 import types
@@ -35,6 +41,7 @@ def pick_strategy(buy_count):
         }],
         [True, '', '过滤创业板', Filter_gem, {}],
         [True, '', '过滤ST,停牌,涨跌停股票', Filter_common, {}],
+        # [True, '', '均值回归选股', Avg_return_pick, {}],
         [True, '', '权重排序', SortRules, {
             'config': [
                 [True, '', '流通市值排序', Sort_financial_data, {
@@ -44,6 +51,9 @@ def pick_strategy(buy_count):
                 [True, '', '首席质量因子排序', Sort_gross_profit, {
                     'sort': SortType.desc,
                     'weight': 100}],
+                [True, '', 'SVR市值排序', Sort_SVR_mkcap, {
+                    'sort': SortType.asc,
+                    'weight': 50}],
                 [True, '20volumn', '20日成交量排序', Sort_volumn, {
                     'sort': SortType.desc
                     , 'weight': 10
@@ -113,11 +123,11 @@ def select_strategy(context):
                     # 止损止盈后是否保留当前的持股状态
                     'keep_position': True,
                     # 动态止盈和accumulate_win不能一起使用
-                    'accumulate_loss':  -0.05,
+                    'accumulate_loss':  -0.1,
                     # 'accumulate_win': 0.2,
                     'dynamic_stop_win': True,
-                    'dynamic_threshod': 0.05,
-                    'dynamic_sense': 0.1 # 0 < sense,越接近0越灵敏,止盈出局越快
+                    'dynamic_threshod': 0.08,
+                    'dynamic_sense': 0.2 # 0 < sense,越接近0越灵敏,止盈出局越快
                 }],
             ]
         }],
@@ -1211,6 +1221,45 @@ class Dividend_yield_pick(Filter_stock_list):
     def __str__(self):
         return '按股息率从大到小选股'
 
+# 均值回归选股策略
+class Avg_return_pick(Filter_stock_list):
+    def __init__(self, params):
+        self.period = params.get('period', 7)
+        pass
+
+    def filter(self, context, data, stock_list):
+        # 获差率列表
+        difference_ratio_table = self.compute_difference_ratio(context, data, stock_list) 
+        # 按差率从大到小排列
+        sorted_table = difference_ratio_table.sort(columns = 'difference_ratio', ascending = False)
+        # 返回排列好的股票list（将sorted_table第一列转换成列表）
+        sorted_list = sorted_table.iloc[:,1].tolist()
+
+        print show_rule_execute_result(self, sorted_list);
+
+        return sorted_list
+
+    # 计算差率列表
+    # 输入：context, data（见API）,stocks为list类型
+    # 输出：DataFrame: 列 stock 为股票名，列 difference_ratio 为差率
+    def compute_difference_ratio(self, context, data, stocks):
+        # 创建差率字典
+        difference_ratio_table = []
+        for stock in stocks:
+            # 获取数据
+            h = attribute_history(stock, self.period , '1d', ['close'])
+            # 均线
+            ma = sum(h['close']) / self.period
+            # 获取现价
+            current_price = data[stock].price
+            # 计算差率
+            difference_ratio = (ma - current_price) / ma 
+            difference_ratio_table.append({'stock': stock, 'difference_ratio' : difference_ratio})
+        return (pd.DataFrame(difference_ratio_table))
+
+    def __str__(self):
+        return '均值回归选股策略 [回归周期: {0}天]'.format(self.period)
+
 # 迈克尔•普莱斯低估价值选股策略
 class Underestimate_value_pick(Filter_stock_list):
     def __init__(self, params):
@@ -1635,6 +1684,54 @@ class Sort_gross_profit(SortBase):
 
     def __str__(self):
         return '首席质量因子排序器:' + '[权重: %s ] [排序: %s ] %s' % (self.weight, self._sort_type_str(), self.memo)
+
+# '''------------------SVR市值排序-----------------'''
+class Sort_SVR_mkcap(SortBase):
+    def sort(self, context, data, stock_list):
+        q = query(valuation.code, valuation.market_cap, balance.total_assets - balance.total_liability,
+                  balance.total_assets / balance.total_liability, income.net_profit, income.net_profit + 1, 
+                  indicator.inc_revenue_year_on_year, balance.development_expenditure).filter(valuation.code.in_(stock_list))
+        df = get_fundamentals(q, date = None)
+        df.columns = ['code', 'log_mcap', 'log_NC', 'LEV', 'NI_p', 'NI_n', 'g', 'log_RD']
+        
+        df['log_mcap'] = np.log(df['log_mcap'])
+        df['log_NC'] = np.log(df['log_NC'])
+        df['NI_p'] = np.log(np.abs(df['NI_p']))
+        df['NI_n'] = np.log(np.abs(df['NI_n'][df['NI_n']<0]))
+        df['log_RD'] = np.log(df['log_RD'])
+        df.index = df.code.values
+        del df['code']
+        df = df.fillna(0)
+        df[df>10000] = 10000
+        df[df<-10000] = -10000
+        industry_set = ['801010', '801020', '801030', '801040', '801050', '801080', '801110', '801120', '801130', 
+                  '801140', '801150', '801160', '801170', '801180', '801200', '801210', '801230', '801710',
+                  '801720', '801730', '801740', '801750', '801760', '801770', '801780', '801790', '801880','801890']
+        
+        for i in range(len(industry_set)):
+            industry = get_industry_stocks(industry_set[i], date = None)
+            s = pd.Series([0]*len(df), index=df.index)
+            s[set(industry) & set(df.index)]=1
+            df[industry_set[i]] = s
+            
+        X = df[['log_NC', 'LEV', 'NI_p', 'NI_n', 'g', 'log_RD','801010', '801020', '801030', '801040', '801050', 
+                '801080', '801110', '801120', '801130', '801140', '801150', '801160', '801170', '801180', '801200', 
+                '801210', '801230', '801710', '801720', '801730', '801740', '801750', '801760', '801770', '801780', 
+                '801790', '801880', '801890']]
+        Y = df[['log_mcap']]
+        X = X.fillna(0)
+        Y = Y.fillna(0)
+        
+        svr = SVR(kernel='rbf', gamma=0.1) 
+        model = svr.fit(X, Y)
+        factor = Y - pd.DataFrame(svr.predict(X), index = Y.index, columns = ['log_mcap'])
+        factor = factor.sort_index(by = 'log_mcap', ascending=self.is_asc)
+        sort_result_list = list(factor.index)
+
+        return sort_result_list
+
+    def __str__(self):
+        return '[权重: %s ] [排序: %s ] %s' % (self.weight, self._sort_type_str(), self.memo)
     
 
 # FFScore长期价值投资打分
