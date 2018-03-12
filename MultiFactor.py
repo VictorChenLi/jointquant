@@ -291,6 +291,7 @@ class Global_variable(object):
     buy_stocks = []  # 选股列表
     sell_stocks = []  # 卖出的股票列表
     black_dict = {} # 买入黑名单
+    stop_loss_stock_list=[] # 止损名单
     # 以下参数需配置  Run_Status_Recorder 规则进行记录。
     is_empty_position = True  # True表示为空仓,False表示为持仓。
     run_day = 0  # 运行天数，持仓天数为正，空仓天数为负
@@ -406,8 +407,6 @@ class Global_variable(object):
 
     # 更新黑名单中所有股票或者指定股票的标记次数counts次
     def update_black_list(self, sender, stock_list_to_blacklist):
-        sender.log.info("stock_list_to_blacklist:{0}".format(','.join(show_stock(e) for e in stock_list_to_blacklist)))
-        sender.log.info("black_dict:\n{0}".format('\n'.join(show_stock(e) + str(self.black_dict.get(e)) for e in self.black_dict.keys())))
         all_stocks = unique(union(stock_list_to_blacklist, self.black_dict.keys()))
         for stock in all_stocks:
             q = self.black_dict.get(stock, deque(maxlen=5))
@@ -420,6 +419,9 @@ class Global_variable(object):
             # 删除全空的key
             if q.count(1) == 0:
                 del self.black_dict[stock]
+
+        if len(self.black_dict.keys()) > 0:
+            sender.log.info("黑名单列表:\n{0}".format('\n'.join(show_stock(e) + str(self.black_dict.get(e)) for e in self.black_dict.keys())))
             
 
 
@@ -760,6 +762,12 @@ class Period_condition(Weight_Base):
         self.day_count = (self.day_count+1) % self.period
         pass
 
+    # 周期结束时更新黑名单
+    def after_trading_end(self, context):
+        if self.day_count == 0:
+            self.g.update_black_list(self, self.g.stop_loss_stock_list)
+            self.g.stop_loss_stock_list=[]
+
     def on_sell_stock(self, position, order, is_normal, pindex=0):
         if not is_normal:
             # 个股止损止盈时，即非正常卖股时，重置计数，原策略是这么写的
@@ -784,7 +792,6 @@ class Stop_loss_win_for_single(Rule):
         self.dynamic_threshod = params.get('dynamic_threshod', 0.1)
         self.dynamic_sense = params.get('dynamic_sense', 0.2)
         self.keep_position = params.get('keep_position', False)
-        self.stop_loss_stock_list = []
         pass
 
     def update_params(self, context, params):
@@ -845,13 +852,7 @@ class Stop_loss_win_for_single(Rule):
                     self.g.close_position(self, position, self.keep_position)
                     # 加入黑名单
                     if accumulate_return < 0:
-                        self.stop_loss_stock_list.append(position.security)
-
-    # 收盘时更新黑名单
-    def after_trading_end(self, context):
-        self.log.info("止损股票:{0}".format(len(self.stop_loss_stock_list)))
-        self.g.update_black_list(self, self.stop_loss_stock_list)
-        self.stop_loss_stock_list=[]
+                        self.g.stop_loss_stock_list.append(position.security)
 
     def __str__(self):
         s =  '个股止损器:'
@@ -1851,10 +1852,18 @@ class Filter_buy_count(Filter_stock_list):
         self.buy_count = params.get('buy_count', self.buy_count)
 
     def filter(self, context, data, stock_list):
-        if len(stock_list) > self.buy_count:
-            return stock_list[:self.buy_count]
+        stock_to_buy = []
+        # 筛除符合黑名单规则的股票
+        for stock in stock_list:
+            if self.g.is_blacklist(stock):
+                self.log.info("{0} 在黑名单中, 筛除".format(show_stock(stock)))
+            else:
+                stock_to_buy.append(stock)
+
+        if len(stock_to_buy) > self.buy_count:
+            return stock_to_buy[:self.buy_count]
         else:
-            return stock_list
+            return stock_to_buy
 
     def __str__(self):
         return '获取最终待购买股票数:[ %d ]' % (self.buy_count)
@@ -1932,9 +1941,6 @@ class Buy_stocks(Rule):
                 value = context.portfolio.available_cash / (self.buy_count - position_count)
                 for stock in buy_stocks:
                     if stock in self.g.sell_stocks:
-                        continue
-                    if self.g.is_blacklist(stock):
-                        self.log.info("{0} 在黑名单中", show_stock(stock))
                         continue
                     if context.portfolio.long_positions[stock].total_amount == 0:
                         if self.g.open_position(self, stock, value, pindex):
