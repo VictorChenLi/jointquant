@@ -12,6 +12,7 @@ import time
 import enum
 from jqdata import gta
 from jqlib.technical_analysis import *
+from collections import deque
 
 def pick_strategy(buy_count):
     g.strategy_memo = '首席质量因子'
@@ -110,13 +111,13 @@ def select_strategy(context):
                 }],
                 [True, '', '个股止损器', Stop_loss_win_for_single, {
                     # 止损止盈后是否保留当前的持股状态
-                    'keep_position': False,
+                    'keep_position': True,
                     # 动态止盈和accumulate_win不能一起使用
                     'accumulate_loss':  -0.05,
                     # 'accumulate_win': 0.2,
-                    # 'dynamic_stop_win': True,
-                    # 'dynamic_threshod': 0.05,
-                    # 'dynamic_sense': 0.1 # 0 < sense,越接近0越灵敏,止盈出局越快
+                    'dynamic_stop_win': True,
+                    'dynamic_threshod': 0.05,
+                    'dynamic_sense': 0.1 # 0 < sense,越接近0越灵敏,止盈出局越快
                 }],
             ]
         }],
@@ -289,6 +290,7 @@ class Global_variable(object):
     op_pindexs = [0]  # 提示当前操作的股票子仓Id
     buy_stocks = []  # 选股列表
     sell_stocks = []  # 卖出的股票列表
+    black_dict = {} # 买入黑名单
     # 以下参数需配置  Run_Status_Recorder 规则进行记录。
     is_empty_position = True  # True表示为空仓,False表示为持仓。
     run_day = 0  # 运行天数，持仓天数为正，空仓天数为负
@@ -396,6 +398,29 @@ class Global_variable(object):
                     count += false_count
                     false_count = 0
         return count if init else -count  # 统计结束，返回结果。init为True返回正数，为False返回负数。
+
+    # 检查指定股票是否最近两次都被标记为黑名单
+    def is_blacklist(self, stock):
+        q = self.black_dict.get(stock, deque(maxlen=5))
+        return len(q) >= 2 and (q[0] + q[1]) == 2
+
+    # 更新黑名单中所有股票或者指定股票的标记次数counts次
+    def update_black_list(self, sender, stock_list_to_blacklist):
+        sender.log.info("stock_list_to_blacklist:{0}".format(','.join(show_stock(e) for e in stock_list_to_blacklist)))
+        sender.log.info("black_dict:\n{0}".format('\n'.join(show_stock(e) + str(self.black_dict.get(e)) for e in self.black_dict.keys())))
+        all_stocks = unique(union(stock_list_to_blacklist, self.black_dict.keys()))
+        for stock in all_stocks:
+            q = self.black_dict.get(stock, deque(maxlen=5))
+            if stock in stock_list_to_blacklist:
+                q.append(1)
+                sender.log.info("{0} 被标记黑名单, 目前序列为{1}".format(show_stock(stock), q))
+            else:
+                q.append(0)
+            self.black_dict.update({stock:q})
+            # 删除全空的key
+            if q.count(1) == 0:
+                del self.black_dict[stock]
+            
 
 
 # ''' ==============================规则基类================================'''
@@ -732,7 +757,7 @@ class Period_condition(Weight_Base):
     def handle_data(self, context, data):
         self.log.info("调仓日计数 [%d]" % (self.day_count))
         self.is_to_return = self.day_count % self.period != 0
-        self.day_count += 1
+        self.day_count = (self.day_count+1) % self.period
         pass
 
     def on_sell_stock(self, position, order, is_normal, pindex=0):
@@ -759,6 +784,7 @@ class Stop_loss_win_for_single(Rule):
         self.dynamic_threshod = params.get('dynamic_threshod', 0.1)
         self.dynamic_sense = params.get('dynamic_sense', 0.2)
         self.keep_position = params.get('keep_position', False)
+        self.stop_loss_stock_list = []
         pass
 
     def update_params(self, context, params):
@@ -799,13 +825,14 @@ class Stop_loss_win_for_single(Rule):
     def handle_data(self, context, data):
         for stock in context.portfolio.positions.keys():
             accumulate_return = self.security_accumulate_return(context,data,stock);
+            keep_position_str = "保留其他仓位" if self.keep_position else "执行强制调仓"
             # 动态止盈
             if self.dynamic_stop_win:
                 dynamic_stop_margin = self.get_dynamic_win_stop(context, data, stock)
                 if accumulate_return > 0 and accumulate_return < dynamic_stop_margin:
                     position = context.portfolio.long_positions[stock]
                     # 平仓
-                    self.log.warn('{0} 该股累计涨幅超过动态止盈点{1}%, 目前为{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), dynamic_stop_margin*100, accumulate_return*100))
+                    self.log.warn('{0} 该股累计涨幅超过动态止盈点{1}%, 目前为{2}%，执行平仓 {3}'.format(show_stock(position.security), dynamic_stop_margin*100, accumulate_return*100, keep_position_str))
                     self.g.close_position(self, position, self.keep_position)
 
             # 静态止损止盈
@@ -814,8 +841,17 @@ class Stop_loss_win_for_single(Rule):
             or (self.dynamic_stop_win == False and self.accumulate_win !=None and accumulate_return > self.accumulate_win) ):
                     position = context.portfolio.long_positions[stock]
                     # 平仓
-                    self.log.warn('{0} 该股累计{1}超过{2}%，执行平仓，并且重新开始调仓'.format(show_stock(position.security), "涨幅" if accumulate_return > 0 else "跌幅", (self.accumulate_win if accumulate_return > 0 else self.accumulate_loss)*100))
+                    self.log.warn('{0} 该股累计{1}超过{2}%，执行平仓 {3}'.format(show_stock(position.security), "涨幅" if accumulate_return > 0 else "跌幅", (self.accumulate_win if accumulate_return > 0 else self.accumulate_loss)*100, keep_position_str))
                     self.g.close_position(self, position, self.keep_position)
+                    # 加入黑名单
+                    if accumulate_return < 0:
+                        self.stop_loss_stock_list.append(position.security)
+
+    # 收盘时更新黑名单
+    def after_trading_end(self, context):
+        self.log.info("止损股票:{0}".format(len(self.stop_loss_stock_list)))
+        self.g.update_black_list(self, self.stop_loss_stock_list)
+        self.stop_loss_stock_list=[]
 
     def __str__(self):
         s =  '个股止损器:'
@@ -1896,6 +1932,9 @@ class Buy_stocks(Rule):
                 value = context.portfolio.available_cash / (self.buy_count - position_count)
                 for stock in buy_stocks:
                     if stock in self.g.sell_stocks:
+                        continue
+                    if self.g.is_blacklist(stock):
+                        self.log.info("{0} 在黑名单中", show_stock(stock))
                         continue
                     if context.portfolio.long_positions[stock].total_amount == 0:
                         if self.g.open_position(self, stock, value, pindex):
